@@ -1,6 +1,7 @@
-<Window x:Class="SystemAutorun.App.Dialogs.TaskDetailWindow"
+<ui:FluentWindow x:Class="SystemAutorun.App.Dialogs.TaskDetailWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="任务详细信息"
         Width="760"
         Height="560"
@@ -60,4 +61,4 @@
                 Click="Close_Click"
                 Content="关闭" />
     </Grid>
-</Window>
+</ui:FluentWindow>

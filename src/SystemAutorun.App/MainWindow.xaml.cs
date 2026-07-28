@@ -8,7 +8,7 @@ using SystemAutorun.Windows.Startup;
 
 namespace SystemAutorun.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly MainWindowViewModel _viewModel;
     private readonly DispatcherTimer _refreshTimer;

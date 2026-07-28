@@ -4,7 +4,7 @@ using SystemAutorun.Core.Models;
 
 namespace SystemAutorun.App.Dialogs;
 
-public partial class StartupManagerWindow : Window
+public partial class StartupManagerWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly StartupManagerViewModel _viewModel;
     private readonly Func<AddWindowsTaskRequest, Task<bool>> _addTask;

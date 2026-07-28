@@ -1,6 +1,6 @@
 namespace SystemAutorun.App.Dialogs;
 
-public partial class MessageDialog : Window
+public partial class MessageDialog : Wpf.Ui.Controls.FluentWindow
 {
     private MessageDialog(string title, string body, bool confirmation)
     {

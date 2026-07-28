@@ -2,7 +2,8 @@
 
 SystemAutorun is a dense Windows operations tool. Its interface stays quiet,
 compact, and optimized for repeated scanning and action rather than decorative
-presentation. The native WPF rewrite preserves the existing visual identity.
+presentation. The native WPF rewrite uses Wpf.Ui for theme infrastructure and
+window chrome while preserving the product-owned visual identity.
 
 ## Principles
 
@@ -53,13 +54,26 @@ sizes are 11, 12, 14, 16, 20, and 24 px. Letter spacing is always zero.
 
 ### Component
 
-- Main buttons are at least 38 px high; task action buttons use a 3 px left
+- Main buttons are at least 32 px high; toolbar buttons are at least 30 px high.
+  Task action buttons use a 3 px left
   accent border.
 - Inputs are at least 32 px high with 10 px horizontal padding.
 - Task rows are 34 px high. Headers and cells use compact 8-12 px padding.
-- Status badges are at least 64 x 26 px with a 1 px status-colored border.
+- Status badges are at least 62 x 24 px with a 1 px status-colored border.
 - Busy indicators are 4 px high and use `FocusAccent`.
 - Scrollbars are 8 px wide. Cards use a 1 px border and no shadow.
+
+## Wpf.Ui Bridge
+
+- `ThemesDictionary` and `ControlsDictionary` provide the dark theme and native
+  control infrastructure.
+- `WpfUiOverrides.xaml` maps Wpf.Ui background, text, border, and accent
+  resources back to the primitive token layer instead of accepting system
+  accent colors.
+- Every application window derives from `FluentWindow`, uses no backdrop, and
+  requests `WindowCornerPreference.DoNotRound`.
+- Product-owned WPF styles load after Wpf.Ui resources, preserving dense
+  spacing, square templates, 1 px borders, and purple focus states.
 
 ## Layout Contract
 
@@ -67,7 +81,7 @@ sizes are 11, 12, 14, 16, 20, and 24 px. Letter spacing is always zero.
 - Page margins: 18 px horizontal, 14 px vertical; primary gap: 12 px.
 - Horizontal task/detail split starts near 3:2.
 - Detail panel width: 420-520 px, preferred 460 px.
-- Task columns: status, name, type, distro, reason, and detail.
+- Task columns: status, task, type, and health summary.
 - Primary task actions remain in a stable two-column grid.
 
 ## Interaction Contract

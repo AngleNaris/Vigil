@@ -1,6 +1,7 @@
-<Window x:Class="SystemAutorun.App.Dialogs.StartupManagerWindow"
+<ui:FluentWindow x:Class="SystemAutorun.App.Dialogs.StartupManagerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         Title="Windows 启动项管理"
         Width="1160"
         Height="640"
@@ -82,4 +83,4 @@
             </StackPanel>
         </Grid>
     </Grid>
-</Window>
+</ui:FluentWindow>

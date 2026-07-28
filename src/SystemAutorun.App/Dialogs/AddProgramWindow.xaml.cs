@@ -5,7 +5,7 @@ using SystemAutorun.Windows.Execution;
 
 namespace SystemAutorun.App.Dialogs;
 
-public partial class AddProgramWindow : Window
+public partial class AddProgramWindow : Wpf.Ui.Controls.FluentWindow
 {
     public AddProgramWindow(StartupEntry? startupEntry = null)
     {

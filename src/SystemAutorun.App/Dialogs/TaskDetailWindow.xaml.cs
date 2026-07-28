@@ -2,7 +2,7 @@ using SystemAutorun.Core.Models;
 
 namespace SystemAutorun.App.Dialogs;
 
-public partial class TaskDetailWindow : Window
+public partial class TaskDetailWindow : Wpf.Ui.Controls.FluentWindow
 {
     public TaskDetailWindow(TaskStatusDetail detail)
     {

@@ -2,7 +2,7 @@ using SystemAutorun.Core.Models;
 
 namespace SystemAutorun.App.Dialogs;
 
-public partial class DoctorWindow : Window
+public partial class DoctorWindow : Wpf.Ui.Controls.FluentWindow
 {
     public DoctorWindow(DoctorReport report)
     {
