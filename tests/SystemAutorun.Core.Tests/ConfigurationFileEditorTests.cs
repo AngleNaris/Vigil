@@ -31,6 +31,34 @@ public sealed class ConfigurationFileEditorTests
     }
 
     [Fact]
+    public async Task AddsFirstTaskToEmptyTasksSequenceWithoutBom()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Write("autorun.yaml", EmptyConfig);
+        var executable = Environment.ProcessPath!;
+
+        var result = await new ConfigurationFileEditor().AddWindowsTaskAsync(
+            new ProjectPaths(temp.Path),
+            new AddWindowsTaskRequest("first-tool", executable, Array.Empty<string>()));
+
+        var content = await File.ReadAllTextAsync(configPath);
+        Assert.Contains("tasks:\n  - name: \"first-tool\"", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("tasks: []", content, StringComparison.Ordinal);
+        Assert.True(File.Exists(result.BackupPath));
+        var loaded = await new ConfigurationLoader().LoadAsync(temp.Path);
+        var task = Assert.Single(loaded.Tasks);
+        Assert.Equal("first-tool", task.Name);
+        Assert.Equal(executable, task.Executable);
+        Assert.Equal(Path.GetFileName(executable), task.Health.Pattern);
+
+        var bytes = await File.ReadAllBytesAsync(configPath);
+        Assert.False(bytes.Length >= 3
+            && bytes[0] == 0xEF
+            && bytes[1] == 0xBB
+            && bytes[2] == 0xBF);
+    }
+
+    [Fact]
     public async Task RemovesOneTaskAndPreservesFollowingTask()
     {
         using var temp = new TempDirectory();
@@ -86,5 +114,12 @@ public sealed class ConfigurationFileEditorTests
             health:
               type: wsl_running
               distro: Ubuntu
+        """;
+
+    private const string EmptyConfig = """
+        version: 1
+        settings:
+          default_startup_delay: 5
+        tasks: []
         """;
 }

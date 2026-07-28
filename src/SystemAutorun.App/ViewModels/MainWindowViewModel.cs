@@ -55,6 +55,30 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private bool isEmpty = true;
 
+    [ObservableProperty]
+    private int totalTaskCount;
+
+    [ObservableProperty]
+    private int okTaskCount;
+
+    [ObservableProperty]
+    private int failedTaskCount;
+
+    [ObservableProperty]
+    private int disabledTaskCount;
+
+    [ObservableProperty]
+    private string emptyStateTitle = "暂无启动任务";
+
+    [ObservableProperty]
+    private string emptyStateMessage = "当前配置为空。";
+
+    [ObservableProperty]
+    private string emptyStateActionLabel = "添加任务";
+
+    [ObservableProperty]
+    private string emptyStateActionIcon = "\uE710";
+
     internal MainWindowViewModel(
         AgentClient client,
         NativeCacheStore cache,
@@ -96,6 +120,10 @@ public partial class MainWindowViewModel : ObservableObject
     public IReadOnlyList<FilterOption> StatusFilters { get; }
 
     public IReadOnlyList<FilterOption> TypeFilters { get; }
+
+    public IRelayCommand EmptyStateActionCommand => Tasks.Count == 0
+        ? AddProgramCommand
+        : ClearFiltersCommand;
 
     public event EventHandler<string>? ErrorRequested;
 
@@ -182,7 +210,7 @@ public partial class MainWindowViewModel : ObservableObject
         });
     }
 
-    [RelayCommand(CanExecute = nameof(CanRunGlobalCommand))]
+    [RelayCommand(CanExecute = nameof(CanStartMissing))]
     private async Task StartMissingAsync()
     {
         await RunBusyAsync("正在补启动未运行任务...", async () =>
@@ -203,6 +231,14 @@ public partial class MainWindowViewModel : ObservableObject
 
     [RelayCommand]
     private void AddProgram() => AddProgramRequested?.Invoke(this, EventArgs.Empty);
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        SearchText = string.Empty;
+        SelectedStatusFilter = StatusFilters[0];
+        SelectedTypeFilter = TypeFilters[0];
+    }
 
     [RelayCommand(CanExecute = nameof(CanOperateSelectedTask))]
     private async Task RemoveTaskAsync()
@@ -292,6 +328,8 @@ public partial class MainWindowViewModel : ObservableObject
     private bool CanOperateSelectedTask() => SelectedTask is not null && !IsBusy;
 
     private bool CanRunGlobalCommand() => !IsBusy;
+
+    private bool CanStartMissing() => !IsBusy && Tasks.Count > 0;
 
     private async Task RunTaskCommandAsync(string command, string action)
     {
@@ -425,10 +463,19 @@ public partial class MainWindowViewModel : ObservableObject
     {
         var visible = TasksView.Cast<object>().OfType<TaskRowViewModel>().ToArray();
         IsEmpty = visible.Length == 0;
-        var ok = visible.Count(task => task.Status == "OK");
-        var fail = visible.Count(task => task.Status == "FAIL");
-        var off = visible.Count(task => task.Status == "OFF");
-        CountMessage = $"共 {visible.Length} 项  ·  OK {ok}  ·  FAIL {fail}  ·  OFF {off}";
+        TotalTaskCount = Tasks.Count;
+        OkTaskCount = Tasks.Count(task => task.Status == "OK");
+        FailedTaskCount = Tasks.Count(task => task.Status == "FAIL");
+        DisabledTaskCount = Tasks.Count(task => task.Status == "OFF");
+        EmptyStateTitle = Tasks.Count == 0 ? "暂无启动任务" : "没有匹配结果";
+        EmptyStateMessage = Tasks.Count == 0 ? "当前配置为空。" : "当前筛选下没有任务。";
+        EmptyStateActionLabel = Tasks.Count == 0 ? "添加任务" : "清除筛选";
+        EmptyStateActionIcon = Tasks.Count == 0 ? "\uE710" : "\uE71A";
+        OnPropertyChanged(nameof(EmptyStateActionCommand));
+        CountMessage = visible.Length == Tasks.Count
+            ? $"{Tasks.Count} 项"
+            : $"显示 {visible.Length} / {Tasks.Count} 项";
+        StartMissingCommand.NotifyCanExecuteChanged();
     }
 
     private void NotifyCommandStates()

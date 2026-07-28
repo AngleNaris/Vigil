@@ -27,28 +27,28 @@ $resolved = Resolve-WindowsExecutable -Executable 'powershell.exe'
 Assert-True ([bool]$resolved) 'PATH-resolvable executables must be accepted.'
 
 Assert-True (Test-WindowsProcessIdentity `
-    -ExpectedPath 'C:\Tools\xray.exe' `
-    -CandidatePath 'C:\Tools\XRAY.EXE') `
+    -ExpectedPath 'C:\Tools\worker.exe' `
+    -CandidatePath 'C:\Tools\WORKER.EXE') `
     'Windows process identity must match the same executable path case-insensitively.'
 Assert-True (Test-WindowsProcessIdentity `
-    -ExpectedPath 'C:\Tools\xray.exe' `
-    -CommandLine '"C:\Tools\xray.exe" -config config.json') `
+    -ExpectedPath 'C:\Tools\worker.exe' `
+    -CommandLine '"C:\Tools\worker.exe" -config config.json') `
     'Windows process identity must match a command line containing the executable path.'
 Assert-True (-not (Test-WindowsProcessIdentity `
-    -ExpectedPath 'C:\Tools\xray.exe' `
-    -CommandLine '"C:\Other\xray.exe" -config C:\Tools\xray.exe')) `
+    -ExpectedPath 'C:\Tools\worker.exe' `
+    -CommandLine '"C:\Other\worker.exe" -config C:\Tools\worker.exe')) `
     'Windows process identity must not match a target path mentioned only in arguments.'
 Assert-True (-not (Test-WindowsProcessIdentity `
-    -ExpectedPath 'C:\Tools\xray.exe' `
-    -CandidatePath 'C:\Other\xray.exe')) `
+    -ExpectedPath 'C:\Tools\worker.exe' `
+    -CandidatePath 'C:\Other\worker.exe')) `
     'Same-name executables from another directory must not match.'
 Assert-True (Test-WindowsProcessIdentity `
-    -ExpectedPath 'C:\Program Files\Docker\Docker\Docker Desktop.exe' `
-    -CandidatePath 'C:\Program Files\Docker\Docker\frontend\Docker Desktop.exe') `
+    -ExpectedPath 'C:\Program Files\SampleTool\SampleTool.exe' `
+    -CandidatePath 'C:\Program Files\SampleTool\runtime\SampleTool.exe') `
     'Windows process identity must match same-name re-exec under the install directory tree.'
 Assert-True (-not (Test-WindowsProcessIdentity `
-    -ExpectedPath 'C:\Program Files\Docker\Docker\Docker Desktop.exe' `
-    -CandidatePath 'C:\Other\Docker Desktop.exe')) `
+    -ExpectedPath 'C:\Program Files\SampleTool\SampleTool.exe' `
+    -CandidatePath 'C:\Other\SampleTool.exe')) `
     'Install-tree matching must not accept same-name executables outside the install directory.'
 
 function Stop-Task { return $true }
@@ -63,10 +63,6 @@ Assert-True ([bool]$apply.applied) 'apply -Json must produce a valid JSON result
 if ($apply.boot_task) {
     Assert-True ($apply.boot_task.State -is [string]) 'apply -Json must serialize Boot Task state as a string.'
 }
-
-$statusRaw = & pwsh -NoProfile -NonInteractive -File (Join-Path $ProjectRoot 'autorun.ps1') status xray-windows -Json
-$status = $statusRaw | ConvertFrom-Json
-Assert-True ($status.processes -is [array]) 'status -Json must keep processes as an array when one process is present.'
 
 $doctorRaw = & pwsh -NoProfile -NonInteractive -File (Join-Path $ProjectRoot 'autorun.ps1') doctor -Json
 $doctor = $doctorRaw | ConvertFrom-Json

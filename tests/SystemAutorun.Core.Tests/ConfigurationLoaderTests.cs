@@ -44,6 +44,25 @@ public sealed class ConfigurationLoaderTests
     }
 
     [Fact]
+    public async Task LoadsEmptyTasksSequence()
+    {
+        using var temp = new TempDirectory();
+        temp.Write(
+            "autorun.yaml",
+            """
+            version: 1
+            settings:
+              default_startup_delay: 5
+            tasks: []
+            """);
+
+        var configuration = await new ConfigurationLoader().LoadAsync(temp.Path);
+
+        Assert.Empty(configuration.Tasks);
+        Assert.Equal(5, configuration.Settings.DefaultStartupDelay);
+    }
+
+    [Fact]
     public async Task RejectsDependencyCycles()
     {
         using var temp = new TempDirectory();

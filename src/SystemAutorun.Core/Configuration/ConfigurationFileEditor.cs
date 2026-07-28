@@ -67,9 +67,10 @@ public sealed class ConfigurationFileEditor
             var original = await File.ReadAllTextAsync(paths.ConfigPath, cancellationToken)
                 .ConfigureAwait(false);
             var newline = original.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
-            var candidate = original.TrimEnd('\r', '\n')
+            var appendBase = PrepareTaskSequenceForAppend(original, out var wasEmpty);
+            var candidate = appendBase.TrimEnd('\r', '\n')
                 + newline
-                + newline
+                + (wasEmpty ? string.Empty : newline)
                 + BuildWindowsTaskBlock(
                     name,
                     executable,
@@ -86,6 +87,47 @@ public sealed class ConfigurationFileEditor
         {
             MutationLock.Release();
         }
+    }
+
+    private static string PrepareTaskSequenceForAppend(string yaml, out bool wasEmpty)
+    {
+        var stream = new YamlStream();
+        using (var reader = new StringReader(yaml))
+        {
+            stream.Load(reader);
+        }
+
+        if (stream.Documents[0].RootNode is not YamlMappingNode root
+            || !root.Children.TryGetValue(new YamlScalarNode("tasks"), out var tasksNode)
+            || tasksNode is not YamlSequenceNode tasks)
+        {
+            throw new ConfigurationException("Config does not contain a tasks sequence.");
+        }
+
+        wasEmpty = tasks.Children.Count == 0;
+        if (!wasEmpty)
+        {
+            return yaml;
+        }
+
+        var start = checked((int)tasks.Start.Index);
+        var end = start;
+        while (end < yaml.Length && yaml[end] != ']')
+        {
+            if (yaml[end] is not ('[' or ' ' or '\t' or '\r' or '\n'))
+            {
+                throw new ConfigurationException("Empty tasks sequence uses an unsupported YAML form.");
+            }
+
+            end++;
+        }
+
+        if (end >= yaml.Length)
+        {
+            throw new ConfigurationException("Empty tasks sequence is not terminated.");
+        }
+
+        return yaml.Remove(start, end - start + 1).TrimEnd(' ', '\t');
     }
 
     public async Task<ConfigurationMutationResult> RemoveTaskAsync(

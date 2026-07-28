@@ -149,8 +149,8 @@ function Test-WindowsProcessIdentity {
 
     # 1) 完整路径一致
     # 2) 同安装目录树下的同名进程（调用方已按进程名过滤）
-    #    例：配置入口 ...\Docker\Docker Desktop.exe，
-    #    实际运行 ...\Docker\frontend\Docker Desktop.exe
+    #    例：配置入口 ...\SampleTool\SampleTool.exe，
+    #    实际运行 ...\SampleTool\runtime\SampleTool.exe
     if (Test-PathUnderWindowsInstallTree -ExpectedPathKey $expectedKey -CandidatePathKey $candidateKey) {
         return $true
     }
@@ -206,7 +206,7 @@ function Get-Win32ProcessDetailsById {
 }
 
 # 返回与任务 exec 完整路径匹配的进程。
-# 不能只按进程名匹配：例如 v2rayN 也可能拥有一个 xray.exe。
+# 不能只按进程名匹配：不同程序可能拥有同名的 worker.exe。
 #
 # 性能策略：
 # 1) Get-Process -Name 按进程名过滤（O(同名实例)，毫秒级）

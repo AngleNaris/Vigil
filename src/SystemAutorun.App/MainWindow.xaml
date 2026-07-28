@@ -13,9 +13,9 @@
         Closing="Window_Closing">
     <Window.Resources>
         <Style x:Key="StatusBadgeBorderStyle" TargetType="Border">
-            <Setter Property="MinWidth" Value="64" />
-            <Setter Property="Height" Value="26" />
-            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="MinWidth" Value="62" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="9,2" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Background" Value="{StaticResource Semantic.Brush.SurfaceInset}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -30,7 +30,9 @@
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="StatusBadgeTextStyle" TargetType="TextBlock">
+        <Style x:Key="StatusBadgeTextStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource {x:Type TextBlock}}">
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="FontSize" Value="11" />
@@ -45,19 +47,39 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="InspectorLabelTextStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource HintTextStyle}">
+            <Setter Property="Margin" Value="0,0,12,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+
+        <Style x:Key="InspectorValueTextStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource DetailTextStyle}">
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="InspectorSectionTextStyle"
+               TargetType="TextBlock"
+               BasedOn="{StaticResource SectionTitleTextStyle}">
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
     </Window.Resources>
 
     <DockPanel LastChildFill="True">
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="文件(_F)">
-                <MenuItem Header="编辑配置 (autorun.yaml)" Command="{Binding EditConfigCommand}" />
+                <MenuItem Header="编辑配置" Command="{Binding EditConfigCommand}" />
                 <MenuItem Header="打开日志目录" Command="{Binding OpenLogsCommand}" />
                 <Separator />
                 <MenuItem Header="退出" Click="Exit_Click" />
             </MenuItem>
             <MenuItem Header="工具(_T)">
-                <MenuItem Header="系统诊断 (Doctor)" Command="{Binding DoctorCommand}" />
-                <MenuItem Header="管理自动启动项" Command="{Binding OpenStartupManagerCommand}" />
+                <MenuItem Header="系统诊断" Command="{Binding DoctorCommand}" />
+                <MenuItem Header="Windows 启动项" Command="{Binding OpenStartupManagerCommand}" />
                 <MenuItem Header="添加程序任务" Command="{Binding AddProgramCommand}" />
                 <Separator />
                 <MenuItem Header="安装系统启动执行器" Click="InstallBoot_Click" />
@@ -68,239 +90,487 @@
             </MenuItem>
         </Menu>
 
-        <StatusBar DockPanel.Dock="Bottom" MinHeight="28">
+        <StatusBar DockPanel.Dock="Bottom" MinHeight="30">
+            <TextBlock Margin="4,0,8,0"
+                       FontFamily="Segoe Fluent Icons"
+                       Foreground="{StaticResource Semantic.Brush.FocusAccent}"
+                       Text="&#xE946;" />
             <TextBlock Text="{Binding StatusMessage}" />
-            <Separator />
-            <ProgressBar Width="64"
+            <ProgressBar Width="72"
+                         Margin="12,0,0,0"
                          IsIndeterminate="True"
                          Style="{StaticResource BusyProgressStyle}"
                          Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
             <Separator />
-            <TextBlock Text="{Binding CountMessage}" />
+            <TextBlock HorizontalAlignment="Right" Text="{Binding CountMessage}" />
         </StatusBar>
 
-        <Grid Margin="18,14">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="3*" MinWidth="660" />
-                <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="2*" MinWidth="420" MaxWidth="520" />
-            </Grid.ColumnDefinitions>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="78" />
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="58" />
+            </Grid.RowDefinitions>
 
-            <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
+            <Border Grid.Row="0"
+                    Background="{StaticResource Semantic.Brush.SurfacePrimary}"
+                    BorderBrush="{StaticResource Semantic.Brush.BorderStrong}"
+                    BorderThickness="0,0,0,1">
+                <Grid Margin="18,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                    <Grid Margin="12,10,12,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="180" />
-                            <ColumnDefinition Width="118" />
-                            <ColumnDefinition Width="130" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource PageTitleTextStyle}" Text="SystemAutorun" />
+                        <TextBlock Margin="0,3,0,0"
+                                   Style="{StaticResource PageSubtitleTextStyle}"
+                                   Text="启动任务工作台" />
+                    </StackPanel>
 
-                        <TextBlock Grid.Column="0"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource SectionTitleTextStyle}"
-                                   Text="任务列表" />
-                        <TextBlock Grid.Column="1"
-                                   Margin="8,0,0,0"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource HintTextStyle}"
-                                   Text="{Binding CountMessage}" />
-                        <TextBox Grid.Column="3"
-                                 Margin="0,0,8,0"
-                                 AutomationProperties.Name="搜索任务"
-                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="搜索名称、类型、原因或详情" />
-                        <ComboBox Grid.Column="4"
-                                  Margin="0,0,8,0"
-                                  ItemsSource="{Binding StatusFilters}"
-                                  DisplayMemberPath="Label"
-                                  SelectedItem="{Binding SelectedStatusFilter}" />
-                        <ComboBox Grid.Column="5"
-                                  Margin="0,0,8,0"
-                                  ItemsSource="{Binding TypeFilters}"
-                                  DisplayMemberPath="Label"
-                                  SelectedItem="{Binding SelectedTypeFilter}" />
-                        <CheckBox Grid.Column="6"
-                                  VerticalAlignment="Center"
-                                  Content="自动刷新"
-                                  IsChecked="{Binding AutoRefresh}" />
-                    </Grid>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                        <StackPanel Width="72">
+                            <TextBlock Style="{StaticResource MetricValueTextStyle}"
+                                       Text="{Binding TotalTaskCount}" />
+                            <TextBlock Style="{StaticResource MetricLabelTextStyle}" Text="全部" />
+                        </StackPanel>
+                        <Border Height="34"
+                                Margin="14,0"
+                                BorderBrush="{StaticResource Semantic.Brush.BorderStrong}"
+                                BorderThickness="1,0,0,0" />
+                        <StackPanel Width="64">
+                            <TextBlock Style="{StaticResource MetricValueTextStyle}"
+                                       Foreground="{StaticResource Semantic.Brush.StatusHealthy}"
+                                       Text="{Binding OkTaskCount}" />
+                            <TextBlock Style="{StaticResource MetricLabelTextStyle}" Text="OK" />
+                        </StackPanel>
+                        <StackPanel Width="64">
+                            <TextBlock Style="{StaticResource MetricValueTextStyle}"
+                                       Foreground="{StaticResource Semantic.Brush.StatusFailed}"
+                                       Text="{Binding FailedTaskCount}" />
+                            <TextBlock Style="{StaticResource MetricLabelTextStyle}" Text="FAIL" />
+                        </StackPanel>
+                        <StackPanel Width="64">
+                            <TextBlock Style="{StaticResource MetricValueTextStyle}"
+                                       Foreground="{StaticResource Semantic.Brush.StatusDisabled}"
+                                       Text="{Binding DisabledTaskCount}" />
+                            <TextBlock Style="{StaticResource MetricLabelTextStyle}" Text="OFF" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-                    <Grid Grid.Row="1">
+            <Border Grid.Row="1"
+                    Background="{StaticResource Semantic.Brush.WindowBackground}"
+                    BorderBrush="{StaticResource Semantic.Brush.BorderSubtle}"
+                    BorderThickness="0,0,0,1">
+                <Grid Margin="18,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="300" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="125" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="38" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="116" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBox Grid.Column="0"
+                             AutomationProperties.Name="搜索任务"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="搜索任务" />
+                    <ComboBox Grid.Column="2"
+                              ItemsSource="{Binding StatusFilters}"
+                              DisplayMemberPath="Label"
+                              SelectedItem="{Binding SelectedStatusFilter}" />
+                    <ComboBox Grid.Column="4"
+                              ItemsSource="{Binding TypeFilters}"
+                              DisplayMemberPath="Label"
+                              SelectedItem="{Binding SelectedTypeFilter}" />
+                    <CheckBox Grid.Column="6"
+                              VerticalAlignment="Center"
+                              Content="自动刷新"
+                              IsChecked="{Binding AutoRefresh}" />
+
+                    <Button Grid.Column="8"
+                            AutomationProperties.Name="刷新状态"
+                            Style="{StaticResource IconToolbarButtonStyle}"
+                            Command="{Binding RefreshCommand}"
+                            Content="&#xE72C;"
+                            ToolTip="刷新状态" />
+                    <Button Grid.Column="10"
+                            Style="{StaticResource ToolbarButtonStyle}"
+                            Command="{Binding StartMissingCommand}">
+                        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                            <TextBlock Margin="0,0,7,0" FontFamily="Segoe Fluent Icons" Text="&#xE768;" />
+                            <TextBlock Text="补启动" />
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="12"
+                            Style="{StaticResource ToolbarPrimaryButtonStyle}"
+                            Command="{Binding AddProgramCommand}">
+                        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                            <TextBlock Margin="0,0,7,0" FontFamily="Segoe Fluent Icons" Text="&#xE710;" />
+                            <TextBlock Text="添加任务" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2" Margin="18,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="660" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="420" MinWidth="400" MaxWidth="460" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}">
+                    <Grid>
                         <DataGrid x:Name="TaskGrid"
                                   ItemsSource="{Binding TasksView}"
                                   SelectedItem="{Binding SelectedTask}"
                                   MouseDoubleClick="TaskGrid_MouseDoubleClick">
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Header="状态" Width="80" CanUserSort="True" SortMemberPath="Status">
+                                <DataGridTemplateColumn Header="状态" Width="76" CanUserSort="True" SortMemberPath="Status">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Border Style="{StaticResource StatusBadgeBorderStyle}">
+                                            <Border HorizontalAlignment="Center" Style="{StaticResource StatusBadgeBorderStyle}">
                                                 <TextBlock Style="{StaticResource StatusBadgeTextStyle}" Text="{Binding Status}" />
                                             </Border>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="220" />
-                                <DataGridTextColumn Header="类型" Binding="{Binding Type}" Width="110" />
-                                <DataGridTextColumn Header="Distro" Binding="{Binding Distro}" Width="100" />
-                                <DataGridTextColumn Header="原因" Binding="{Binding Reason}" Width="200" />
-                                <DataGridTextColumn Header="详情" Binding="{Binding Detail}" Width="*" MinWidth="200" />
+                                <DataGridTemplateColumn Header="任务" Width="2*" MinWidth="190" SortMemberPath="Name">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock FontWeight="Medium"
+                                                       Text="{Binding Name}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Description}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="目标" Width="150" SortMemberPath="Type">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Foreground="{StaticResource Semantic.Brush.TextSecondary}"
+                                                       Text="{Binding TargetSummary}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="运行状态" Width="3*" MinWidth="240" SortMemberPath="Reason">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding ReasonLabel}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Detail}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
 
-                        <StackPanel HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Border Background="{StaticResource Semantic.Brush.SurfacePrimary}"
+                                Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock HorizontalAlignment="Center"
+                                           FontFamily="Segoe Fluent Icons"
+                                           FontSize="32"
+                                           Foreground="{StaticResource Semantic.Brush.FocusAccent}"
+                                           Text="&#xE710;" />
+                                <TextBlock Margin="0,12,0,0"
+                                           HorizontalAlignment="Center"
+                                           Style="{StaticResource PanelTitleTextStyle}"
+                                           Text="{Binding EmptyStateTitle}" />
+                                <TextBlock Margin="0,5,0,16"
+                                           HorizontalAlignment="Center"
+                                           Style="{StaticResource HintTextStyle}"
+                                           Text="{Binding EmptyStateMessage}" />
+                                <Button Style="{StaticResource ToolbarPrimaryButtonStyle}"
+                                        Command="{Binding EmptyStateActionCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Margin="0,0,7,0"
+                                                   FontFamily="Segoe Fluent Icons"
+                                                   Text="{Binding EmptyStateActionIcon}" />
+                                        <TextBlock Text="{Binding EmptyStateActionLabel}" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Column="1"
+                              Width="10"
+                              HorizontalAlignment="Stretch"
+                              Background="Transparent" />
+
+                <Border Grid.Column="2" Style="{StaticResource CardBorderStyle}">
+                    <Grid>
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedTask}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
                             <TextBlock HorizontalAlignment="Center"
                                        FontFamily="Segoe Fluent Icons"
-                                       FontSize="30"
+                                       FontSize="28"
                                        Foreground="{StaticResource Semantic.Brush.TextHint}"
-                                       Text="&#xE71C;" />
+                                       Text="&#xE8A5;" />
                             <TextBlock Margin="0,10,0,0"
-                                       Style="{StaticResource HintTextStyle}"
-                                       Text="没有符合当前筛选条件的任务" />
-                        </StackPanel>
-                    </Grid>
-                </Grid>
-            </Border>
-
-            <GridSplitter Grid.Column="1"
-                          Width="8"
-                          HorizontalAlignment="Stretch"
-                          Background="{StaticResource Semantic.Brush.WindowBackground}" />
-
-            <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="10" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0"
-                            Style="{StaticResource PanelPrimaryButtonStyle}"
-                            Command="{Binding RefreshCommand}">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE72C;" />
-                            <TextBlock Text="刷新" />
-                        </StackPanel>
-                    </Button>
-                    <Button Grid.Column="2"
-                            Style="{StaticResource PanelActionButtonStyle}"
-                            Command="{Binding AddProgramCommand}">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE710;" />
-                            <TextBlock Text="添加程序" />
-                        </StackPanel>
-                    </Button>
-                </Grid>
-
-                <Border Grid.Row="2" Style="{StaticResource CardBorderStyle}" Padding="16,14">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <TextBlock Style="{StaticResource PanelTitleTextStyle}" Text="任务详情" />
-
-                        <Border Grid.Row="1"
-                                Margin="0,12,0,0"
-                                HorizontalAlignment="Left"
-                                DataContext="{Binding SelectedTask}"
-                                Style="{StaticResource StatusBadgeBorderStyle}">
-                            <TextBlock Style="{StaticResource StatusBadgeTextStyle}" Text="{Binding Status, FallbackValue=OFF}" />
-                        </Border>
-
-                        <TextBlock Grid.Row="2"
-                                   Margin="0,10,0,0"
-                                   Style="{StaticResource HintTextStyle}"
-                                   Text="{Binding SelectedTask.Name, TargetNullValue=选择左侧任务查看状态与操作。}" />
-                        <TextBlock Grid.Row="3"
-                                   Margin="0,6,0,0"
-                                   MaxHeight="72"
-                                   Style="{StaticResource DetailTextStyle}"
-                                   Text="{Binding SelectedTask.Description}"
-                                   TextWrapping="Wrap" />
-                        <TextBlock Grid.Row="4"
-                                   Margin="0,6,0,0"
-                                   Style="{StaticResource HintTextStyle}"
-                                   Text="{Binding SelectedTask.LaunchSummary}" />
-
-                        <StackPanel Grid.Row="5" Margin="0,14,0,0">
-                            <TextBlock Margin="0,0,0,10" Style="{StaticResource SectionTitleTextStyle}" Text="操作" />
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="10" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="10" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Button Grid.Row="0" Grid.Column="0" Style="{StaticResource PanelPrimaryButtonStyle}" Command="{Binding StartCommand}" Content="启动" />
-                                <Button Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelDangerButtonStyle}" Command="{Binding StopCommand}" Content="停止" />
-                                <Button Grid.Row="2" Grid.Column="0" Style="{StaticResource PanelActionButtonStyle}" Command="{Binding RestartCommand}" Content="重启" />
-                                <Button Grid.Row="2" Grid.Column="2" Style="{StaticResource PanelActionButtonStyle}" Command="{Binding EnableCommand}" Content="启用" />
-                                <Button Grid.Row="4" Grid.Column="0" Style="{StaticResource PanelDangerButtonStyle}" Command="{Binding DisableCommand}" Content="禁用" />
-                                <Button Grid.Row="4" Grid.Column="2" Style="{StaticResource PanelDangerButtonStyle}" Command="{Binding RemoveTaskCommand}" Content="移出列表" />
-                            </Grid>
+                                       Style="{StaticResource SectionTitleTextStyle}"
+                                       Text="未选择任务" />
                         </StackPanel>
 
-                        <StackPanel Grid.Row="6" Margin="0,14,0,0">
-                            <TextBlock Margin="0,0,0,10" Style="{StaticResource SectionTitleTextStyle}" Text="辅助" />
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="10" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Style="{StaticResource PanelActionButtonStyle}" Command="{Binding ShowDetailCommand}" Content="查看日志" />
-                                <Button Grid.Column="2" Style="{StaticResource PanelActionButtonStyle}" Command="{Binding ShowDetailCommand}" Content="详细信息" />
-                            </Grid>
-                        </StackPanel>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer.Style>
+                                <Style TargetType="ScrollViewer">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedTask}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ScrollViewer.Style>
+                            <StackPanel Margin="16,14">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource PanelTitleTextStyle}"
+                                                   Text="{Binding SelectedTask.Name}" />
+                                        <TextBlock Margin="0,4,0,0"
+                                                   Style="{StaticResource HintTextStyle}"
+                                                   Text="{Binding SelectedTask.TargetSummary}" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1"
+                                            DataContext="{Binding SelectedTask}"
+                                            Style="{StaticResource StatusBadgeBorderStyle}">
+                                        <TextBlock Style="{StaticResource StatusBadgeTextStyle}"
+                                                   Text="{Binding Status, FallbackValue=OFF}" />
+                                    </Border>
+                                </Grid>
 
-                        <StackPanel Grid.Row="7" Margin="0,14,0,0">
-                            <TextBlock Margin="0,0,0,10" Style="{StaticResource SectionTitleTextStyle}" Text="全局选项" />
-                            <CheckBox Margin="0,0,0,10"
-                                      Content="本工具随用户登录后台启动"
-                                      IsChecked="{Binding IsSelfStartupEnabled}"
-                                      Click="SelfStartup_Click" />
-                            <CheckBox Margin="0,0,0,10"
-                                      Content="启动后自动补启动未运行任务"
-                                      IsChecked="{Binding StartMissingOnLaunch}" />
-                            <Button Style="{StaticResource PanelActionButtonStyle}"
-                                    Command="{Binding StartMissingCommand}"
-                                    Content="立即补启动未运行任务" />
-                        </StackPanel>
+                                <TextBlock Margin="0,12,0,0"
+                                           Foreground="{StaticResource Semantic.Brush.TextSecondary}"
+                                           Text="{Binding SelectedTask.Description}"
+                                           TextWrapping="Wrap" />
+
+                                <Border Margin="0,14,0,14"
+                                        BorderBrush="{StaticResource Semantic.Brush.BorderSubtle}"
+                                        BorderThickness="0,1,0,0" />
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="92" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Style="{StaticResource InspectorLabelTextStyle}" Text="状态" />
+                                    <TextBlock Grid.Column="1"
+                                               Style="{StaticResource InspectorValueTextStyle}"
+                                               Text="{Binding SelectedTask.ReasonLabel}" />
+                                    <TextBlock Grid.Row="2" Style="{StaticResource InspectorLabelTextStyle}" Text="详情" />
+                                    <TextBlock Grid.Row="2"
+                                               Grid.Column="1"
+                                               Style="{StaticResource InspectorValueTextStyle}"
+                                               Text="{Binding SelectedTask.Detail}"
+                                               ToolTip="{Binding SelectedTask.Detail}" />
+                                    <TextBlock Grid.Row="4" Style="{StaticResource InspectorLabelTextStyle}" Text="启动模式" />
+                                    <TextBlock Grid.Row="4"
+                                               Grid.Column="1"
+                                               Style="{StaticResource InspectorValueTextStyle}"
+                                               Text="{Binding SelectedTask.LaunchSummary}" />
+                                    <TextBlock Grid.Row="6" Style="{StaticResource InspectorLabelTextStyle}" Text="启动延迟" />
+                                    <TextBlock Grid.Row="6"
+                                               Grid.Column="1"
+                                               Style="{StaticResource InspectorValueTextStyle}"
+                                               Text="{Binding SelectedTask.StartupDelayText}" />
+                                    <TextBlock Grid.Row="8" Style="{StaticResource InspectorLabelTextStyle}" Text="可执行文件" />
+                                    <TextBlock Grid.Row="8"
+                                               Grid.Column="1"
+                                               Style="{StaticResource InspectorValueTextStyle}"
+                                               Text="{Binding SelectedTask.ExecutableDisplay}"
+                                               TextTrimming="CharacterEllipsis"
+                                               TextWrapping="NoWrap"
+                                               ToolTip="{Binding SelectedTask.ExecutableDisplay}" />
+                                </Grid>
+
+                                <Border Margin="0,16,0,14"
+                                        BorderBrush="{StaticResource Semantic.Brush.BorderSubtle}"
+                                        BorderThickness="0,1,0,0" />
+
+                                <TextBlock Style="{StaticResource InspectorSectionTextStyle}" Text="任务操作" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Button Grid.Row="0"
+                                            Grid.Column="0"
+                                            Style="{StaticResource InspectorPrimaryButtonStyle}"
+                                            Command="{Binding StartCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE768;" />
+                                            <TextBlock Text="启动" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Row="0"
+                                            Grid.Column="2"
+                                            Style="{StaticResource InspectorDangerButtonStyle}"
+                                            Command="{Binding StopCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE71A;" />
+                                            <TextBlock Text="停止" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Row="2"
+                                            Grid.Column="0"
+                                            Style="{StaticResource InspectorActionButtonStyle}"
+                                            Command="{Binding RestartCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE72C;" />
+                                            <TextBlock Text="重启" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Row="2"
+                                            Grid.Column="2"
+                                            Style="{StaticResource InspectorActionButtonStyle}"
+                                            Command="{Binding ShowDetailCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE946;" />
+                                            <TextBlock Text="状态与日志" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Row="4"
+                                            Grid.Column="0"
+                                            Style="{StaticResource InspectorActionButtonStyle}"
+                                            Command="{Binding EnableCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE73E;" />
+                                            <TextBlock Text="启用" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Row="4"
+                                            Grid.Column="2"
+                                            Style="{StaticResource InspectorDangerButtonStyle}"
+                                            Command="{Binding DisableCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE711;" />
+                                            <TextBlock Text="禁用" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <TextBlock Margin="0,18,0,10"
+                                           Style="{StaticResource InspectorSectionTextStyle}"
+                                           Text="文件与配置" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0"
+                                            Style="{StaticResource InspectorActionButtonStyle}"
+                                            Command="{Binding OpenLogsCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE8B7;" />
+                                            <TextBlock Text="打开日志" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="2"
+                                            Style="{StaticResource InspectorActionButtonStyle}"
+                                            Command="{Binding EditConfigCommand}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE70F;" />
+                                            <TextBlock Text="编辑配置" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <Button Margin="0,18,0,0"
+                                        Style="{StaticResource InspectorDangerButtonStyle}"
+                                        Command="{Binding RemoveTaskCommand}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE74D;" />
+                                        <TextBlock Text="移出任务列表" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Grid>
                 </Border>
             </Grid>
+
+            <Border Grid.Row="3"
+                    Background="{StaticResource Semantic.Brush.SurfaceInset}"
+                    BorderBrush="{StaticResource Semantic.Brush.BorderStrong}"
+                    BorderThickness="0,1,0,0">
+                <Grid Margin="18,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox Grid.Column="0"
+                              VerticalAlignment="Center"
+                              Content="登录后后台运行"
+                              IsChecked="{Binding IsSelfStartupEnabled}"
+                              Click="SelfStartup_Click" />
+                    <CheckBox Grid.Column="2"
+                              VerticalAlignment="Center"
+                              Content="启动后补齐未运行任务"
+                              IsChecked="{Binding StartMissingOnLaunch}" />
+                    <Button Grid.Column="4"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource ToolbarButtonStyle}"
+                            Command="{Binding OpenStartupManagerCommand}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Margin="0,0,8,0" FontFamily="Segoe Fluent Icons" Text="&#xE713;" />
+                            <TextBlock Text="Windows 启动项" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
         </Grid>
     </DockPanel>
 </Window>

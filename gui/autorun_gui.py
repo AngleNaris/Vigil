@@ -2899,7 +2899,7 @@ class AddProgramDialog(QtWidgets.QDialog):
         form.setVerticalSpacing(10)
 
         self.name_edit = QtWidgets.QLineEdit()
-        self.name_edit.setPlaceholderText("例如 jellyfin")
+        self.name_edit.setPlaceholderText("例如 backup-worker")
         self.name_edit.setMinimumHeight(34)
         form.addRow("任务名", self.name_edit)
 

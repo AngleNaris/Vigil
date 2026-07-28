@@ -208,44 +208,6 @@ function Get-DoctorData {
         detail = if ($wslExe) { $wslExe.Source } else { 'not found' }
     }
 
-    $ubuntu = Get-WslDistroState -Distro 'Ubuntu'
-    $checks += [pscustomobject]@{
-        check  = 'WSL Ubuntu'
-        ok     = [bool]$ubuntu.Running
-        detail = "State=$($ubuntu.State) Version=$($ubuntu.Version)"
-    }
-
-    if ($ubuntu.Running) {
-        $sdPid1 = (Invoke-WslCommand -Distro 'Ubuntu' -Command 'ps -p 1 -o comm= 2>/dev/null').Trim()
-        $checks += [pscustomobject]@{
-            check  = 'systemd (PID 1)'
-            ok     = $sdPid1 -match 'systemd'
-            detail = "PID 1 = $sdPid1"
-        }
-    } else {
-        $checks += [pscustomobject]@{
-            check  = 'systemd (PID 1)'
-            ok     = $true
-            detail = 'SKIPPED (WSL not running; will check on first start)'
-        }
-    }
-
-    if ($ubuntu.Running) {
-        $svcExists = Invoke-WslCommand -Distro 'Ubuntu' -Command "systemctl list-unit-files --type=service | grep -F 'hermes-gateway.service' | wc -l"
-        $servicePresent = $svcExists.Trim() -ne '0'
-        $checks += [pscustomobject]@{
-            check  = 'hermes-gateway.service'
-            ok     = $servicePresent
-            detail = if ($servicePresent) { 'present' } else { 'MISSING' }
-        }
-    } else {
-        $checks += [pscustomobject]@{
-            check  = 'hermes-gateway.service'
-            ok     = $true
-            detail = 'SKIPPED (WSL not running; will check on first start)'
-        }
-    }
-
     $svc = Get-Service -Name 'Schedule' -ErrorAction SilentlyContinue
     $checks += [pscustomobject]@{
         check  = 'Task Scheduler service'
