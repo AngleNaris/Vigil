@@ -1,0 +1,25 @@
+# Runtime state
+logs/
+backups/
+autorun.gui.cache.json
+autorun.gui.settings.json
+autorun.overrides.json
+autorun.startup.backup.json
+
+# Legacy build output
+build*/
+dist*/
+*.pyc
+__pycache__/
+
+# .NET build output
+**/bin/
+**/obj/
+artifacts/
+.vs/
+*.user
+*.suo
+
+# Local Codex working notes
+.codex/
+
