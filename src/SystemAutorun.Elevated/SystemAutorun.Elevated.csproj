@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>SystemAutorun.Elevated</AssemblyName>
+    <RootNamespace>SystemAutorun.Elevated</RootNamespace>
+    <ApplicationIcon>..\..\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SystemAutorun.Core\SystemAutorun.Core.csproj" />
+    <ProjectReference Include="..\SystemAutorun.Windows\SystemAutorun.Windows.csproj" />
+  </ItemGroup>
+</Project>

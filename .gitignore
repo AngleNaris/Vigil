@@ -5,6 +5,8 @@ autorun.gui.cache.json
 autorun.gui.settings.json
 autorun.overrides.json
 autorun.startup.backup.json
+autorun.startup.native.cache.json
+autorun.startup.backup.json.transaction
 
 # Legacy build output
 build*/
@@ -22,4 +24,3 @@ artifacts/
 
 # Local Codex working notes
 .codex/
-

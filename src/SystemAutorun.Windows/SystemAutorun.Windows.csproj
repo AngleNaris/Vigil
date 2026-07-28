@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SystemAutorun.Windows</AssemblyName>
+    <RootNamespace>SystemAutorun.Windows</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SystemAutorun.Core\SystemAutorun.Core.csproj" />
+  </ItemGroup>
+</Project>

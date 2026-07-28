@@ -1,0 +1,6 @@
+version: 1
+
+settings:
+  default_startup_delay: 0
+
+tasks: []

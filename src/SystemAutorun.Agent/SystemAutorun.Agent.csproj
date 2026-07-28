@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>SystemAutorun.Agent</AssemblyName>
+    <RootNamespace>SystemAutorun.Agent</RootNamespace>
+    <ApplicationIcon>..\..\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SystemAutorun.Core\SystemAutorun.Core.csproj" />
+    <ProjectReference Include="..\SystemAutorun.Windows\SystemAutorun.Windows.csproj" />
+  </ItemGroup>
+</Project>

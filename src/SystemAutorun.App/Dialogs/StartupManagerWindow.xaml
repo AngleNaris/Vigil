@@ -1,0 +1,85 @@
+<Window x:Class="SystemAutorun.App.Dialogs.StartupManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Windows 启动项管理"
+        Width="1160"
+        Height="640"
+        MinWidth="980"
+        MinHeight="560"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Loaded="Window_Loaded">
+    <Grid Margin="14,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="10" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="10" />
+                <ColumnDefinition Width="140" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock VerticalAlignment="Center"
+                           Style="{StaticResource PanelTitleTextStyle}"
+                           Text="Windows 启动项" />
+                <TextBlock Margin="10,0,0,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource HintTextStyle}"
+                           Text="{Binding CountMessage}" />
+            </StackPanel>
+            <TextBox Grid.Column="2"
+                     AutomationProperties.Name="搜索启动项"
+                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
+            <ComboBox Grid.Column="4"
+                      ItemsSource="{Binding Filters}"
+                      DisplayMemberPath="Label"
+                      SelectedItem="{Binding SelectedFilter}" />
+        </Grid>
+
+        <Border Grid.Row="2" Style="{StaticResource CardBorderStyle}">
+            <DataGrid ItemsSource="{Binding EntriesView}" SelectedItem="{Binding SelectedEntry}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="78" />
+                    <DataGridTextColumn Header="托管" Binding="{Binding Managed}" Width="120" />
+                    <DataGridTextColumn Header="权限" Binding="{Binding Permission}" Width="86" />
+                    <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="110" />
+                    <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="180" />
+                    <DataGridTextColumn Header="目标" Binding="{Binding Target}" Width="*" MinWidth="260" />
+                    <DataGridTextColumn Header="参数" Binding="{Binding Arguments}" Width="220" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                <ProgressBar Width="64"
+                             Margin="0,0,10,0"
+                             IsIndeterminate="True"
+                             Style="{StaticResource BusyProgressStyle}"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <TextBlock VerticalAlignment="Center"
+                           Style="{StaticResource HintTextStyle}"
+                           Text="{Binding StatusMessage}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Width="96" Margin="0,0,10,0" Command="{Binding RefreshCommand}" Content="刷新" />
+                <Button Width="110" Margin="0,0,10,0" Command="{Binding AddToTasksCommand}" Content="加入任务" />
+                <Button Width="96" Margin="0,0,10,0" Style="{StaticResource PanelDangerButtonStyle}" Command="{Binding DisableCommand}" Content="禁用" />
+                <Button Width="96" Margin="0,0,10,0" Command="{Binding RestoreCommand}" Content="恢复" />
+                <Button Width="96" IsCancel="True" Content="关闭" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
