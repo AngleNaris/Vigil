@@ -1,5 +1,4 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Core.Models;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -8,15 +7,11 @@ namespace SystemAutorun.Core.Configuration;
 
 public sealed class ConfigurationLoader
 {
-    private static readonly JsonSerializerOptions OverrideJsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-    };
-
     private readonly IDeserializer _deserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
+        .WithDuplicateKeyChecking()
+        .WithMaximumRecursion(64)
         .Build();
 
     public async Task<AutorunConfiguration> LoadAsync(
@@ -49,13 +44,41 @@ public sealed class ConfigurationLoader
             throw new ConfigurationException($"Config file not found: {configPath}");
         }
 
+        var yaml = await SnapshotFile.ReadAllTextAsync(configPath, cancellationToken).ConfigureAwait(false);
+        return await LoadTextAsync(yaml, root, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AutorunConfiguration> LoadTextAsync(string yaml, string rootDirectory, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(yaml);
+        var root = Path.GetFullPath(rootDirectory);
+        var document = ReadDocument(yaml, cancellationToken);
+        var overrides = await LoadOverridesAsync(root, cancellationToken).ConfigureAwait(false);
+        var settings = MapSettings(document.Settings!, root);
+        var tasks = document.Tasks!.Select(task => MapTask(task, settings, overrides)).ToArray();
+        Validate(tasks);
+        return new AutorunConfiguration(document.Version, settings, tasks, root);
+    }
+
+    // Pure settings projection from a caller-owned bounded snapshot. Does not open
+    // overrides, validate task semantics, create paths or inspect task targets.
+    public AutorunSettings ReadSettingsText(string yaml, string rootDirectory, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(yaml);
+        var root = Path.GetFullPath(rootDirectory);
+        return MapSettings(ReadDocument(yaml, cancellationToken).Settings!, root);
+    }
+
+    private ConfigDocument ReadDocument(string yaml, CancellationToken cancellationToken)
+    {
         ConfigDocument document;
         try
         {
-            var yaml = await File.ReadAllTextAsync(configPath, cancellationToken).ConfigureAwait(false);
+            ConfigurationYamlGuard.Validate(yaml, cancellationToken);
             document = _deserializer.Deserialize<ConfigDocument>(yaml)
                 ?? throw new ConfigurationException("Config is empty.");
         }
+        catch (OperationCanceledException) { throw; }
         catch (ConfigurationException)
         {
             throw;
@@ -75,12 +98,7 @@ public sealed class ConfigurationLoader
             throw new ConfigurationException("Config must define settings and tasks.");
         }
 
-        var overrides = await LoadOverridesAsync(root, cancellationToken).ConfigureAwait(false);
-        var settings = MapSettings(document.Settings, root);
-        var tasks = document.Tasks.Select(task => MapTask(task, settings, overrides)).ToArray();
-        Validate(tasks);
-
-        return new AutorunConfiguration(document.Version, settings, tasks, root);
+        return document;
     }
 
     private static AutorunSettings MapSettings(SettingsDocument document, string root)
@@ -99,12 +117,12 @@ public sealed class ConfigurationLoader
     private static AutorunTask MapTask(
         TaskDocument document,
         AutorunSettings settings,
-        IReadOnlyDictionary<string, TaskOverride> overrides)
+        IReadOnlyDictionary<string, bool> overrides)
     {
         var name = Required(document.Name, "Task name is required.");
         var type = ParseTaskType(Required(document.Type, $"Task '{name}' type is required."));
-        var enabled = overrides.TryGetValue(name, out var taskOverride)
-            ? taskOverride.Enabled
+        var enabled = overrides.TryGetValue(name, out var overrideEnabled)
+            ? overrideEnabled
             : document.Enabled ?? true;
         var delay = document.StartupDelay ?? settings.DefaultStartupDelay;
         if (delay < 0)
@@ -130,7 +148,10 @@ public sealed class ConfigurationLoader
                 ?? Array.Empty<string>(),
             delay,
             health,
-            launch);
+            launch,
+            document.ExpectedRunning ?? false,
+            document.StartOnAppLaunch,
+            document.AutoRecover);
     }
 
     private static HealthCheckDefinition MapHealth(string taskName, HealthDocument? document)
@@ -186,6 +207,8 @@ public sealed class ConfigurationLoader
             {
                 case AutorunTaskType.Windows when string.IsNullOrWhiteSpace(task.Executable):
                     throw new ConfigurationException($"Windows task '{task.Name}' requires exec.");
+                case AutorunTaskType.WindowsService when string.IsNullOrWhiteSpace(task.Service):
+                    throw new ConfigurationException($"Windows service task '{task.Name}' requires service.");
                 case AutorunTaskType.WslBoot when string.IsNullOrWhiteSpace(task.Distro):
                     throw new ConfigurationException($"WSL boot task '{task.Name}' requires distro.");
                 case AutorunTaskType.WslSystemd when
@@ -225,6 +248,8 @@ public sealed class ConfigurationLoader
                 throw new ConfigurationException($"Task '{task.Name}' TCP health requires host and port.");
             case HealthCheckType.Tcp when health.Port is < 1 or > 65535:
                 throw new ConfigurationException($"Task '{task.Name}' TCP health port is invalid.");
+            case HealthCheckType.WindowsService when string.IsNullOrWhiteSpace(health.Service ?? task.Service):
+                throw new ConfigurationException($"Task '{task.Name}' Windows service health requires service.");
             case HealthCheckType.WslRunning when string.IsNullOrWhiteSpace(health.Distro ?? task.Distro):
                 throw new ConfigurationException($"Task '{task.Name}' WSL health requires distro.");
             case HealthCheckType.SystemdActive when
@@ -269,30 +294,20 @@ public sealed class ConfigurationLoader
         }
     }
 
-    private static async Task<IReadOnlyDictionary<string, TaskOverride>> LoadOverridesAsync(
+    private static async Task<IReadOnlyDictionary<string, bool>> LoadOverridesAsync(
         string root,
         CancellationToken cancellationToken)
     {
         var path = Path.Combine(root, "autorun.overrides.json");
-        if (!File.Exists(path))
-        {
-            return new Dictionary<string, TaskOverride>(StringComparer.OrdinalIgnoreCase);
-        }
-
         try
         {
-            await using var stream = File.OpenRead(path);
-            var values = await JsonSerializer.DeserializeAsync<Dictionary<string, TaskOverride>>(
-                stream,
-                OverrideJsonOptions,
-                cancellationToken).ConfigureAwait(false);
-            return values is null
-                ? new Dictionary<string, TaskOverride>(StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, TaskOverride>(values, StringComparer.OrdinalIgnoreCase);
+            return await OverrideFileCodec.ReadAsync(path, cancellationToken).ConfigureAwait(false);
         }
-        catch (JsonException)
+        catch (System.Text.Json.JsonException exception)
         {
-            return new Dictionary<string, TaskOverride>(StringComparer.OrdinalIgnoreCase);
+            throw new ConfigurationException(
+                $"Failed to parse overrides file '{path}': {exception.Message}",
+                exception);
         }
     }
 
@@ -318,6 +333,7 @@ public sealed class ConfigurationLoader
     private static AutorunTaskType ParseTaskType(string value) => value.ToLowerInvariant() switch
     {
         "windows" => AutorunTaskType.Windows,
+        "windows_service" => AutorunTaskType.WindowsService,
         "wsl_boot" => AutorunTaskType.WslBoot,
         "wsl_systemd" => AutorunTaskType.WslSystemd,
         "wsl_command" => AutorunTaskType.WslCommand,
@@ -328,6 +344,7 @@ public sealed class ConfigurationLoader
     {
         "process" => HealthCheckType.Process,
         "tcp" => HealthCheckType.Tcp,
+        "windows_service" => HealthCheckType.WindowsService,
         "wsl_running" => HealthCheckType.WslRunning,
         "systemd_active" => HealthCheckType.SystemdActive,
         "wsl_process" => HealthCheckType.WslProcess,
@@ -401,6 +418,12 @@ public sealed class ConfigurationLoader
 
         public bool? Enabled { get; init; }
 
+        public bool? ExpectedRunning { get; init; }
+
+        public bool? StartOnAppLaunch { get; init; }
+
+        public bool? AutoRecover { get; init; }
+
         public string? Description { get; init; }
 
         public string? Exec { get; init; }
@@ -452,9 +475,4 @@ public sealed class ConfigurationLoader
         public string? Lifecycle { get; init; }
     }
 
-    private sealed class TaskOverride
-    {
-        [JsonPropertyName("enabled")]
-        public bool Enabled { get; init; }
-    }
 }

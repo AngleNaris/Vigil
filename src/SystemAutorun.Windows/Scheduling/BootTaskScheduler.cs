@@ -32,9 +32,9 @@ public sealed record BootTaskInstallResult(
 
 public sealed class BootTaskScheduler
 {
-    public const string FolderPath = @"\SystemAutorun";
+    public const string FolderPath = @"\Vigil";
     public const string TaskName = "Boot";
-    public const string DisplayName = @"\SystemAutorun\Boot";
+    public const string DisplayName = @"\Vigil\Boot";
 
     private const int TaskCreateOrUpdate = 6;
     private const int TaskActionExecute = 0;
@@ -63,7 +63,7 @@ public sealed class BootTaskScheduler
         dynamic folder = GetOrCreateFolder(root, service);
         dynamic definition = service.NewTask(0);
         definition.RegistrationInfo.Description =
-            "Starts SystemAutorun system-scoped tasks at Windows boot.";
+            "Starts Vigil system-scoped tasks at Windows boot.";
         definition.Settings.Enabled = true;
         definition.Settings.StartWhenAvailable = true;
         definition.Settings.DisallowStartIfOnBatteries = false;
@@ -113,15 +113,17 @@ public sealed class BootTaskScheduler
             status.State);
     }
 
-    public bool Uninstall()
+    public bool Uninstall() => Uninstall(Connect);
+
+    internal static bool Uninstall(Func<object> connect)
     {
-        dynamic service = Connect();
+        dynamic service = connect();
         dynamic? folder;
         try
         {
             folder = service.GetFolder(FolderPath);
         }
-        catch (COMException)
+        catch (Exception exception) when (IsMissing(exception))
         {
             return false;
         }
@@ -130,9 +132,17 @@ public sealed class BootTaskScheduler
         {
             folder.DeleteTask(TaskName, 0);
         }
-        catch (COMException)
+        catch (Exception exception) when (IsMissing(exception))
         {
             return false;
+        }
+
+        var absent = false;
+        try { _ = folder.GetTask(TaskName); }
+        catch (Exception exception) when (IsMissing(exception)) { absent = true; }
+        if (!absent)
+        {
+            throw new InvalidOperationException("The boot task was not confirmed absent after deletion.");
         }
 
         try
@@ -149,8 +159,12 @@ public sealed class BootTaskScheduler
             // The task itself is already removed; an empty folder is harmless.
         }
 
-        return !GetStatus().Installed;
+        return true;
     }
+
+    private static bool IsMissing(Exception exception) =>
+        exception is COMException or FileNotFoundException or DirectoryNotFoundException
+        && (uint)exception.HResult is 0x80070002 or 0x80070003;
 
     public void Run()
     {
@@ -194,7 +208,7 @@ public sealed class BootTaskScheduler
         }
         catch (COMException)
         {
-            return root.CreateFolder("SystemAutorun", Type.Missing);
+            return root.CreateFolder("Vigil", Type.Missing);
         }
     }
 
@@ -252,7 +266,7 @@ public sealed class BootTaskScheduler
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException(
-                "The boot task executable must be the protected SystemAutorun Agent installation.");
+                "The boot task executable must be the protected Vigil Agent installation.");
         }
 
         return fullPath;
@@ -266,7 +280,7 @@ public sealed class BootTaskScheduler
             || !File.Exists(Path.Combine(fullPath, "autorun.yaml")))
         {
             throw new UnauthorizedAccessException(
-                "The boot task root must be the protected SystemAutorun ProgramData directory.");
+                "The boot task root must be the protected Vigil ProgramData directory.");
         }
 
         return fullPath;

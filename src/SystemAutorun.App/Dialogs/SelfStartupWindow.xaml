@@ -1,0 +1,100 @@
+<services:ToolWindow x:Class="SystemAutorun.App.Dialogs.SelfStartupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SystemAutorun.App.Controls"
+        xmlns:services="clr-namespace:SystemAutorun.App.Services"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="登录启动" Width="680" MinWidth="640" MinHeight="300" MaxHeight="650" SizeToContent="Height"
+        FontSize="13" FontWeight="Normal" FontFamily="{StaticResource Semantic.Font.Interface}" Foreground="{DynamicResource Semantic.Brush.TextPrimary}"
+        WindowStyle="None" ResizeMode="CanResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        Loaded="Window_Loaded" PreviewKeyDown="Window_PreviewKeyDown">
+    <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="48" CornerRadius="0" GlassFrameThickness="0" ResizeBorderThickness="6" UseAeroCaptionButtons="False" /></shell:WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="SelfAction" TargetType="Button" BasedOn="{StaticResource DashboardRangeButton}">
+            <Setter Property="Height" Value="40" /><Setter Property="MinWidth" Value="96" /><Setter Property="FontSize" Value="16" />
+            <Setter Property="Padding" Value="16,0" /><Setter Property="Background" Value="{DynamicResource Semantic.Brush.SurfaceInset}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderStrong}" /><Setter Property="BorderThickness" Value="1" />
+            <!-- Text actions, not segmented choices: keep the bright interaction role. -->
+            <Setter Property="services:ColorStateAssist.Role" Value="Foreground" />
+        </Style>
+        <Style x:Key="SelfPrimary" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+            <Setter Property="Height" Value="40" /><Setter Property="MinWidth" Value="112" /><Setter Property="FontSize" Value="16" /><Setter Property="FontWeight" Value="Normal" />
+        </Style>
+        <Style x:Key="SelfText" TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /><Setter Property="LineHeight" Value="24" /></Style>
+    </Window.Resources>
+    <controls:PresencePanel MotionKind="Tool" IsPresented="True">
+    <Border Background="{DynamicResource Semantic.Brush.WindowBackground}" BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="24,0,6,0">
+                <DockPanel>
+                    <Button x:Name="ChromeCloseButton" DockPanel.Dock="Right" Style="{StaticResource DashboardIconButton}" Click="Close_Click" ToolTip="关闭登录启动工具，不撤销已提交操作" AutomationProperties.Name="关闭登录启动工具" shell:WindowChrome.IsHitTestVisibleInChrome="True"><controls:LineIcon Kind="Close" /></Button>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <controls:LineIcon Width="16" Height="16" Kind="Settings" Margin="0,0,10,0" />
+                        <TextBlock x:Name="ToolTitle" Text="登录启动" FontSize="14" VerticalAlignment="Center" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            <ScrollViewer x:Name="ContentScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                <StackPanel Margin="24,16,24,0">
+                    <Grid Margin="0,0,0,24">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="56" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <controls:LineIcon Kind="{Binding HeroIcon}" Width="36" Height="36" VerticalAlignment="Top" Margin="0,4,0,0" />
+                        <StackPanel Grid.Column="1">
+                            <TextBlock x:Name="StateHeading" Text="{Binding Heading}" FontSize="19" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock Margin="0,8,0,0" Style="{StaticResource SelfText}" Text="{Binding Notice}" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                        </StackPanel>
+                    </Grid>
+                    <Grid x:Name="ScopeRegion" Margin="0,0,0,24" Visibility="{Binding ShowScope, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,24,0">
+                            <TextBlock Text="当前登记" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                            <TextBlock x:Name="RegistrationReadout" Margin="0,8,0,0" Style="{StaticResource SelfText}" Text="{Binding RegistrationText}" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource SelfText}" Text="{Binding RegistrationSource}" FontSize="12" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                            <StackPanel Margin="0,16,0,0" Visibility="{Binding ShowConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="本次操作" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                                <TextBlock Margin="0,8,0,0" Text="{Binding Direction}" />
+                                <TextBlock Margin="0,8,0,0" Style="{StaticResource SelfText}" Text="{Binding ChangeSummary}" FontSize="12" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <Border Grid.Column="1" BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="1,0,0,0" Padding="24,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="作用范围" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                                <TextBlock Margin="0,8,0,0" Style="{StaticResource SelfText}" Text="{Binding CurrentAccount}" />
+                                <TextBlock x:Name="RootReadout" Margin="0,8,0,0" Style="{StaticResource SelfText}" Text="{Binding RootDirectory, StringFormat=管理根 {0}}" />
+                                <TextBlock Margin="0,8,0,0" Style="{StaticResource SelfText}" Text="当前服务端包的固定管理器 · 后台" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                    <StackPanel x:Name="OperationRegion" Margin="0,0,0,16" Visibility="{Binding ShowOperation, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="操作 ID" Foreground="{Binding Path=(services:ColorStateAssist.CaptionBrush), ElementName=OperationReadout}" />
+                        <TextBox x:Name="OperationReadout" Margin="0,8,0,0" Text="{Binding OperationId, Mode=OneWay}" IsReadOnly="True" Style="{StaticResource LogTextBoxStyle}"
+                                 services:ColorStateAssist.Role="Caption" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="14" MinHeight="32" Padding="0" BorderThickness="0" Background="Transparent"
+                                 TextWrapping="Wrap" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="原操作 ID" />
+                    </StackPanel>
+                    <TextBlock Margin="0,0,0,12" Style="{StaticResource SelfText}" Text="{Binding ObservationText}" Visibility="{Binding HasObservation, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="14" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                    <Expander x:Name="TechnicalExpander" Style="{StaticResource CompactDisclosure}" Header="技术校验详情" Background="Transparent" Margin="0,0,0,12" Visibility="{Binding ShowScope, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Margin="0,12,0,0" Style="{StaticResource SelfText}" FontSize="12" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" Text="{Binding TechnicalDetails}" />
+                    </Expander>
+                    <TextBlock x:Name="ActionFeedback" Style="{StaticResource SelfText}" Text="{Binding Feedback}" Visibility="{Binding HasFeedback, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="12" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </ScrollViewer>
+            <StackPanel Grid.Row="2" Margin="24,12,24,16">
+                <WrapPanel HorizontalAlignment="Right">
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding ShowChoice, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Button x:Name="EnableButton" Margin="0,0,12,0" Style="{StaticResource SelfAction}" Content="启用" Command="{Binding EnableCommand}" AutomationProperties.Name="准备启用登录启动" />
+                        <Button x:Name="DisableButton" Margin="0,0,12,0" Style="{StaticResource SelfAction}" Content="停用" Command="{Binding DisableCommand}" AutomationProperties.Name="准备停用登录启动" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding ShowReadOnlyActions, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Button x:Name="QueryButton" Margin="0,0,12,0" Style="{StaticResource SelfPrimary}" Content="查询结果" Command="{Binding QueryCommand}" AutomationProperties.Name="只读查询原操作结果" />
+                        <Button x:Name="CopyButton" Margin="0,0,12,0" Style="{StaticResource SelfAction}" Content="复制 ID" IsEnabled="{Binding CanCopy}" Click="Copy_Click" AutomationProperties.Name="复制原操作 ID" />
+                    </StackPanel>
+                    <Button x:Name="CancelButton" Style="{StaticResource SelfAction}" Content="{Binding CloseCaption}" Click="Close_Click" AutomationProperties.Name="关闭或取消未提交准备" />
+                    <Button x:Name="ConfirmButton" Margin="12,0,0,0" Style="{StaticResource SelfPrimary}" Content="{Binding ConfirmCaption}" Command="{Binding ConfirmCommand}" Visibility="{Binding ShowConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}" AutomationProperties.Name="{Binding ConfirmCaption}" />
+                </WrapPanel>
+                <TextBlock Margin="0,12,0,0" HorizontalAlignment="Right" Style="{StaticResource SelfText}" Text="查询不代表已成功；关闭不代表撤销。" FontSize="12" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" Visibility="{Binding ShowReadOnlyActions, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </StackPanel>
+        </Grid>
+    </Border>
+    </controls:PresencePanel>
+</services:ToolWindow>

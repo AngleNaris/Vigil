@@ -29,6 +29,11 @@ public sealed record LaunchOptions(
             LaunchTrigger.Logon,
             WindowMode.Hidden,
             ProcessLifecycle.Tracked),
+        AutorunTaskType.WindowsService => new(
+            RunAsMode.CurrentUser,
+            LaunchTrigger.Logon,
+            WindowMode.NoConsole,
+            ProcessLifecycle.Service),
         _ => new(
             RunAsMode.CurrentUser,
             LaunchTrigger.Logon,
@@ -51,7 +56,10 @@ public sealed record AutorunTask(
     IReadOnlyList<string> DependsOn,
     int StartupDelay,
     HealthCheckDefinition Health,
-    LaunchOptions Launch);
+    LaunchOptions Launch,
+    bool ExpectedRunning = false,
+    bool? StartOnAppLaunch = null,
+    bool? AutoRecover = null);
 
 public sealed record HealthCheckDefinition(
     HealthCheckType Type,

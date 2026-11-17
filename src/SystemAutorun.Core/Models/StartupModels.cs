@@ -18,6 +18,7 @@ public sealed record StartupEntry(
     string? ManagedTask)
 {
     public bool IsManaged => !string.IsNullOrWhiteSpace(ManagedTask);
+    public string MetadataDigest => StartupInspectionPolicy.Digest(this);
 }
 
 public sealed record StartupManagementSnapshot(
@@ -25,7 +26,12 @@ public sealed record StartupManagementSnapshot(
     int TotalActive,
     int ManagedActive,
     int Disabled,
-    bool IsElevated);
+    bool IsElevated)
+{
+    public bool Truncated { get; init; }
+    public int ReadableSources { get; init; }
+    public IReadOnlyList<StartupSourceIssue> SourceIssues { get; init; } = [];
+}
 
 public sealed record StartupMutationResult(
     bool Succeeded,

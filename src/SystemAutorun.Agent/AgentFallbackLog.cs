@@ -10,7 +10,7 @@ internal static class AgentFallbackLog
         {
             var directory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SystemAutorun",
+                "Vigil",
                 "logs");
             Directory.CreateDirectory(directory);
             await File.AppendAllTextAsync(

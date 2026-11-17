@@ -7,7 +7,7 @@ namespace SystemAutorun.Windows.Scheduling;
 
 public sealed class BootConfigurationStore
 {
-    private const string ProductDirectoryName = "SystemAutorun";
+    private const string ProductDirectoryName = "Vigil";
     private const string BootDirectoryName = "Boot";
     private static readonly string[] StagingFileNames =
     [
@@ -31,12 +31,12 @@ public sealed class BootConfigurationStore
 
     public static string ResolveTrustedAgentPath()
     {
-        var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "SystemAutorun.Agent.exe"));
+        var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "Vigil.Agent.exe"));
         var programFiles = Path.GetFullPath(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
         if (!File.Exists(path)
             || !IsWithinDirectory(path, programFiles)
-            || !string.Equals(Path.GetFileName(path), "SystemAutorun.Agent.exe", StringComparison.OrdinalIgnoreCase))
+            || !string.Equals(Path.GetFileName(path), "Vigil.Agent.exe", StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException(
                 "The SYSTEM Agent must be installed beside the elevated helper under Program Files.");

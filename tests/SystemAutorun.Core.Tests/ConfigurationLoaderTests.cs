@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SystemAutorun.Core.Configuration;
 using SystemAutorun.Core.Models;
 
@@ -20,6 +21,7 @@ public sealed class ConfigurationLoaderTests
         Assert.Equal(RunAsMode.CurrentUser, windows.Launch.RunAs);
         Assert.Equal(LaunchTrigger.Logon, windows.Launch.Trigger);
         Assert.Equal(WindowMode.Hidden, windows.Launch.WindowMode);
+        Assert.False(windows.ExpectedRunning);
         Assert.Equal(7, windows.StartupDelay);
         Assert.Equal(System.IO.Path.Combine(temp.Path, "logs"), configuration.Settings.LogDirectory);
     }
@@ -41,6 +43,80 @@ public sealed class ConfigurationLoaderTests
             && overrideBytes[0] == 0xEF
             && overrideBytes[1] == 0xBB
             && overrideBytes[2] == 0xBF);
+    }
+
+    [Fact]
+    public async Task LoadsLegacyArrayOverridesWithoutRewritingFile()
+    {
+        using var temp = new TempDirectory();
+        temp.Write("autorun.yaml", ValidConfig);
+        var overridePath = temp.Write(
+            "autorun.overrides.json",
+            """
+            [
+              {
+                "name": "worker",
+                "enabled": false
+              }
+            ]
+            """);
+        var before = await File.ReadAllBytesAsync(overridePath);
+
+        var configuration = await new ConfigurationLoader().LoadAsync(temp.Path);
+
+        Assert.False(configuration.GetTask("worker").Enabled);
+        Assert.Equal(before, await File.ReadAllBytesAsync(overridePath));
+    }
+
+    [Fact]
+    public async Task UpdatingLegacyArrayOverridesMigratesWithoutLosingEntries()
+    {
+        using var temp = new TempDirectory();
+        temp.Write("autorun.yaml", ValidConfig);
+        var overridePath = temp.Write(
+            "autorun.overrides.json",
+            """
+            [
+              {
+                "name": "worker",
+                "enabled": false
+              },
+              {
+                "name": "future-task",
+                "enabled": true
+              }
+            ]
+            """);
+
+        await new OverrideStore().SetEnabledAsync(temp.Path, "worker", true);
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(overridePath));
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.True(document.RootElement.GetProperty("worker").GetProperty("Enabled").GetBoolean());
+        Assert.True(document.RootElement.GetProperty("future-task").GetProperty("Enabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ConcurrentOverridesPreserveEveryTaskUpdate()
+    {
+        using var temp = new TempDirectory();
+        var writes = Enumerable.Range(0, 32)
+            .Select(index => new OverrideStore().SetEnabledAsync(
+                temp.Path,
+                $"task-{index}",
+                index % 2 == 0));
+
+        await Task.WhenAll(writes);
+
+        var overridePath = System.IO.Path.Combine(temp.Path, "autorun.overrides.json");
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(overridePath));
+        Assert.Equal(32, document.RootElement.EnumerateObject().Count());
+        for (var index = 0; index < 32; index++)
+        {
+            Assert.Equal(
+                index % 2 == 0,
+                document.RootElement.GetProperty($"task-{index}").GetProperty("Enabled").GetBoolean());
+        }
     }
 
     [Fact]
@@ -86,6 +162,35 @@ public sealed class ConfigurationLoaderTests
             () => new ConfigurationLoader().LoadAsync(temp.Path));
 
         Assert.Contains("missing task", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RejectsCorruptedOverridesInsteadOfSilentlyEnablingTasks()
+    {
+        using var temp = new TempDirectory();
+        temp.Write("autorun.yaml", ValidConfig);
+        temp.Write("autorun.overrides.json", "{ invalid-json");
+
+        var exception = await Assert.ThrowsAsync<ConfigurationException>(
+            () => new ConfigurationLoader().LoadAsync(temp.Path));
+
+        Assert.Contains("overrides", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LoadsExplicitExpectedRunningFlag()
+    {
+        using var temp = new TempDirectory();
+        temp.Write(
+            "autorun.yaml",
+            ValidConfig.Replace(
+                "enabled: true",
+                "enabled: true\n    expected_running: true",
+                StringComparison.Ordinal));
+
+        var configuration = await new ConfigurationLoader().LoadAsync(temp.Path);
+
+        Assert.True(configuration.GetTask("worker").ExpectedRunning);
     }
 
     private const string ValidConfig = """

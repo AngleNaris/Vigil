@@ -8,5 +8,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Deterministic>true</Deterministic>
+    <Product>Vigil</Product>
+    <Version>1.0.0</Version>
   </PropertyGroup>
 </Project>

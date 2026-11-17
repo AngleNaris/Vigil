@@ -4,20 +4,24 @@ using SystemAutorun.Windows.Native;
 
 namespace SystemAutorun.Windows.Execution;
 
+public sealed record ProcessPresence(IReadOnlyList<int> ProcessIds, bool IdentityUnavailable);
+
 public sealed class ProcessIdentity
 {
-    public IReadOnlyList<int> FindMatchingProcessIds(AutorunTask task)
+    public IReadOnlyList<int> FindMatchingProcessIds(AutorunTask task) => ReadPresence(task).ProcessIds;
+
+    public ProcessPresence ReadPresence(AutorunTask task)
     {
         var pattern = task.Health.Pattern;
         if (string.IsNullOrWhiteSpace(pattern))
         {
-            return Array.Empty<int>();
+            return new([], IdentityUnavailable: true);
         }
 
         var processName = Path.GetFileNameWithoutExtension(pattern.Trim());
         if (string.IsNullOrWhiteSpace(processName))
         {
-            return Array.Empty<int>();
+            return new([], IdentityUnavailable: true);
         }
 
         string? expectedPath = null;
@@ -35,7 +39,10 @@ public sealed class ProcessIdentity
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(task.Executable) && expectedPath is null)
+        { return new([], IdentityUnavailable: true); }
         var matches = new List<int>();
+        var unavailable = false;
         foreach (var process in Process.GetProcessesByName(processName))
         {
             using (process)
@@ -47,14 +54,15 @@ public sealed class ProcessIdentity
                 }
 
                 var actualPath = NativeMethods.TryGetProcessImagePath(process.Id);
-                if (actualPath is not null && IsExpectedImage(actualPath, expectedPath))
+                if (actualPath is null) { unavailable = true; }
+                else if (IsExpectedImage(actualPath, expectedPath))
                 {
                     matches.Add(process.Id);
                 }
             }
         }
 
-        return matches;
+        return new(matches, unavailable);
     }
 
     internal static bool IsExpectedImage(string actualPath, string expectedPath)

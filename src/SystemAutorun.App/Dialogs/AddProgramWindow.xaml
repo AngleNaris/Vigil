@@ -1,80 +1,283 @@
-<ui:FluentWindow x:Class="SystemAutorun.App.Dialogs.AddProgramWindow"
+<services:ToolWindow x:Class="SystemAutorun.App.Dialogs.AddProgramWindow"
+        xmlns:services="clr-namespace:SystemAutorun.App.Services"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-        Title="添加程序任务"
-        Width="720"
-        Height="510"
-        MinWidth="660"
-        MinHeight="470"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:controls="clr-namespace:SystemAutorun.App.Controls"
+        xmlns:models="clr-namespace:SystemAutorun.Core.Models;assembly=SystemAutorun.Core"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="添加工作负载"
+        Width="520"
+        MinWidth="480"
+        MaxHeight="520"
+        SizeToContent="Height"
+        FontSize="13"
+        WindowStyle="None"
+        BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}"
+        BorderThickness="1"
         ShowInTaskbar="False"
-        WindowStartupLocation="CenterOwner">
-    <Border Margin="14" Padding="18,16" Style="{StaticResource CardBorderStyle}">
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="120" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="10" />
-                <ColumnDefinition Width="110" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="18" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="12" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="12" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="12" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="12" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="12" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+        WindowStartupLocation="CenterOwner">    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="50" CornerRadius="0" GlassFrameThickness="0" ResizeBorderThickness="6" UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+    <controls:PresencePanel MotionKind="Tool" IsPresented="True">
+    <Grid Background="{DynamicResource Semantic.Brush.WindowBackground}"
+          TextElement.Foreground="{DynamicResource Semantic.Brush.TextPrimary}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="50" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="50" />
+        </Grid.RowDefinitions>
 
-            <TextBlock Grid.ColumnSpan="4"
-                       Style="{StaticResource PanelTitleTextStyle}"
-                       Text="添加程序任务" />
+        <Border Style="{StaticResource DialogHeaderBorderStyle}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource DashboardIconButton}" Command="{x:Static SystemCommands.CloseWindowCommand}"
+                        ToolTip="关闭" AutomationProperties.Name="关闭" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <controls:LineIcon Kind="Close" Width="15" Height="15" />
+                </Button>                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:LineIcon Style="{StaticResource DialogHeaderIconStyle}"
+                                             Kind="Plus" />
+                    <TextBlock Grid.Column="1"
+                               Style="{StaticResource DialogTitleTextStyle}"
+                               Text="添加工作负载"
+                               TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </DockPanel>
+        </Border>
 
-            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="任务名称" />
-            <TextBox x:Name="NameTextBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" />
 
-            <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="程序路径" />
-            <TextBox x:Name="ExecutableTextBox" Grid.Row="4" Grid.Column="1" />
-            <Button Grid.Row="4" Grid.Column="3" Click="Browse_Click">
-                <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
-                    <TextBlock Margin="0,0,7,0" FontFamily="Segoe Fluent Icons" Text="&#xE8B7;" />
-                    <TextBlock Text="浏览" />
+        <!-- R105: only what a typical program needs is visible; everything else is under 高级.
+             Control names and the save contract are unchanged. -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20,14,20,18">
+                <StackPanel x:Name="ProgramPathPanel">
+                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="程序" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ExecutableTextBox" AutomationProperties.Name="程序路径" ToolTip="选择程序后自动填写名称、工作目录和进程匹配规则" />
+                        <Button Grid.Column="2"
+                                AutomationProperties.Name="浏览程序路径"
+                                Style="{StaticResource DialogButtonStyle}"
+                                Click="Browse_Click">
+                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                <controls:LineIcon Width="15" Height="15" Margin="0,0,7,0" VerticalAlignment="Center" Kind="Folder" />
+                                <TextBlock Text="浏览" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
                 </StackPanel>
-            </Button>
 
-            <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="启动参数" />
-            <TextBox x:Name="ArgumentsTextBox" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" />
+                <Grid Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="168" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="名称" />
+                        <TextBox x:Name="NameTextBox" AutomationProperties.Name="任务名称" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="启动时机" />
+                        <ComboBox x:Name="LaunchTriggerComboBox"
+                                  AutomationProperties.Name="启动时机"
+                                  DisplayMemberPath="Label" />
+                    </StackPanel>
+                </Grid>
 
-            <TextBlock Grid.Row="8" VerticalAlignment="Center" Text="工作目录" />
-            <TextBox x:Name="WorkingDirectoryTextBox" Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="3" />
+                <StackPanel Margin="0,14,0,0" ToolTip="仅当前用户登录任务支持后台控制；未知目标不启动，应用内手动停止会暂停恢复。">
+                    <StackPanel.Style><Style TargetType="StackPanel">
+                        <Setter Property="IsEnabled" Value="False" />
+                        <Style.Triggers><DataTrigger Binding="{Binding SelectedItem.Value, ElementName=LaunchTriggerComboBox}" Value="{x:Static models:LaunchTrigger.Logon}"><Setter Property="IsEnabled" Value="True" /></DataTrigger></Style.Triggers>
+                    </Style></StackPanel.Style>
+                    <CheckBox x:Name="StartOnAppLaunchCheckBox" Content="打开应用时未运行则启动" AutomationProperties.Name="打开应用时未运行则启动" />
+                    <CheckBox x:Name="AutoRecoverCheckBox" Margin="0,8,0,0" Content="进程停止后自动恢复" AutomationProperties.Name="进程停止后自动恢复" />
+                </StackPanel>
 
-            <TextBlock Grid.Row="10" VerticalAlignment="Center" Text="任务描述" />
-            <TextBox x:Name="DescriptionTextBox" Grid.Row="10" Grid.Column="1" Grid.ColumnSpan="3" />
+                <Expander x:Name="AdvancedExpander" Style="{StaticResource CompactDisclosure}" Header="高级" Background="Transparent" Margin="0,16,0,0"
+                          AutomationProperties.Name="高级选项" ToolTip="类型、参数、工作目录、窗口模式、描述、依赖、启动延迟与健康检查">
+                    <StackPanel Margin="0,10,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="110" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="工作负载类型" />
+                                <ComboBox x:Name="TaskTypeComboBox"
+                                          AutomationProperties.Name="工作负载类型"
+                                          DisplayMemberPath="Label"
+                                          SelectionChanged="TaskType_SelectionChanged" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="启动延迟（秒）" />
+                                <TextBox x:Name="DelayTextBox"
+                                         AutomationProperties.Name="启动延迟秒数"
+                                         Text="5" />
+                            </StackPanel>
+                        </Grid>
 
-            <TextBlock Grid.Row="12" VerticalAlignment="Center" Text="启动延迟（秒）" />
-            <TextBox x:Name="DelayTextBox" Grid.Row="12" Grid.Column="1" Width="120" HorizontalAlignment="Left" Text="5" />
+                        <StackPanel x:Name="WindowsTargetPanel" Margin="0,10,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="150" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="启动参数" />
+                                    <TextBox x:Name="ArgumentsTextBox"
+                                             MinHeight="40"
+                                             Padding="8,6"
+                                             AutomationProperties.Name="启动参数"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="窗口模式" />
+                                    <ComboBox x:Name="WindowModeComboBox"
+                                              AutomationProperties.Name="窗口模式"
+                                              DisplayMemberPath="Label" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Margin="0,10,0,0">
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="工作目录" />
+                                <TextBox x:Name="WorkingDirectoryTextBox" AutomationProperties.Name="工作目录" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="WindowsServiceTargetPanel"
+                                    Margin="0,10,0,0"
+                                    Visibility="Collapsed">
+                            <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="Windows 服务名称" />
+                            <TextBox x:Name="WindowsServiceNameTextBox"
+                                     AutomationProperties.Name="Windows 服务名称"
+                                     ToolTip="使用服务名称，例如 LanmanServer，而不是显示名称" />
+                        </StackPanel>
 
-            <StackPanel Grid.Row="14"
-                        Grid.Column="1"
-                        Grid.ColumnSpan="3"
-                        HorizontalAlignment="Right"
-                        Orientation="Horizontal">
-                <Button Width="100" Margin="0,0,10,0" IsCancel="True" Content="取消" />
-                <Button Width="110"
-                        IsDefault="True"
-                        Style="{StaticResource PrimaryButtonStyle}"
-                        Click="Save_Click"
-                        Content="添加任务" />
+                        <StackPanel x:Name="WslTargetPanel" Margin="0,10,0,0" Visibility="Collapsed">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="WSL 发行版" />
+                                    <TextBox x:Name="DistroTextBox"
+                                             AutomationProperties.Name="WSL 发行版"
+                                             ToolTip="例如 Ubuntu、Debian" />
+                                </StackPanel>
+                                <StackPanel x:Name="ServiceTargetPanel" Grid.Column="2" Visibility="Collapsed">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="systemd 服务" />
+                                    <TextBox x:Name="ServiceTextBox"
+                                             AutomationProperties.Name="systemd 服务"
+                                             ToolTip="例如 docker.service、cloudflared.service" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel x:Name="CommandTargetPanel" Margin="0,10,0,0" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="WSL 启动命令" />
+                                <TextBox x:Name="CommandTextBox"
+                                         MinHeight="52"
+                                         Padding="8,6"
+                                         AutomationProperties.Name="WSL 启动命令"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         VerticalContentAlignment="Top" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,10,0,0">
+                            <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="描述" />
+                            <TextBox x:Name="DescriptionTextBox"
+                                     MinHeight="40"
+                                     Padding="8,6"
+                                     AutomationProperties.Name="任务描述"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     VerticalContentAlignment="Top" />
+                        </StackPanel>
+                        <StackPanel Margin="0,10,0,0">
+                            <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="依赖任务（逗号分隔）" />
+                            <TextBox x:Name="DependsOnTextBox" AutomationProperties.Name="依赖任务" />
+                        </StackPanel>
+
+                        <TextBlock Margin="0,16,0,0" Style="{StaticResource SectionTitleTextStyle}" Text="健康检查" />
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="90" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="检查类型" />
+                                <ComboBox x:Name="HealthTypeComboBox"
+                                          AutomationProperties.Name="健康检查类型"
+                                          DisplayMemberPath="Label"
+                                          SelectionChanged="HealthType_SelectionChanged" />
+                            </StackPanel>
+                            <StackPanel x:Name="HealthPatternPanel" Grid.Column="2">
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="进程匹配规则" />
+                                <TextBox x:Name="HealthPatternTextBox"
+                                         AutomationProperties.Name="进程匹配规则" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="超时（秒）" />
+                                <TextBox x:Name="HealthTimeoutTextBox"
+                                         AutomationProperties.Name="健康检查超时"
+                                         Text="30" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid x:Name="TcpHealthPanel" Margin="0,10,102,0" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="110" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="主机地址" />
+                                <TextBox x:Name="HealthHostTextBox"
+                                         AutomationProperties.Name="健康检查主机地址"
+                                         Text="127.0.0.1" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="端口" />
+                                <TextBox x:Name="HealthPortTextBox"
+                                         AutomationProperties.Name="健康检查端口" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Expander>
             </StackPanel>
-        </Grid>
-    </Border>
-</ui:FluentWindow>
+        </ScrollViewer>
+        <Border Grid.Row="2" Style="{StaticResource DialogFooterBorderStyle}">
+            <UniformGrid Style="{StaticResource DialogActionsStyle}">
+                <Button Margin="4,0"
+                        AutomationProperties.Name="取消添加工作负载"
+                        Style="{StaticResource DialogButtonStyle}"
+                        IsCancel="True"
+                        Content="取消" />
+                <Button Margin="4,0" AutomationProperties.Name="确认添加工作负载"
+                        IsDefault="True"
+                        Style="{StaticResource DialogPrimaryButtonStyle}"
+                        Click="Save_Click">
+                    <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                        <controls:LineIcon Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center" Kind="Plus" />
+                        <TextBlock Text="添加" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </UniformGrid>
+        </Border>
+    </Grid>
+    </controls:PresencePanel>
+</services:ToolWindow>

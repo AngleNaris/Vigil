@@ -6,4 +6,12 @@
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\SystemAutorun.Cli\ChildProcessIo.cs" Link="Cli\ChildProcessIo.cs" />
+    <Compile Include="..\SystemAutorun.Cli\CliApplication.cs" Link="Cli\CliApplication.cs" />
+    <Compile Include="..\SystemAutorun.Cli\CliApplication.Recovery.cs" Link="Cli\CliApplication.Recovery.cs" />
+    <Compile Include="..\SystemAutorun.Cli\CliArguments.cs" Link="Cli\CliArguments.cs" />
+    <Compile Include="..\SystemAutorun.Cli\CliHelp.cs" Link="Cli\CliHelp.cs" />
+    <Compile Include="..\SystemAutorun.Cli\CliOutput.cs" Link="Cli\CliOutput.cs" />
+  </ItemGroup>
 </Project>

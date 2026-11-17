@@ -100,32 +100,47 @@ function Remove-SafeDirectoryTree {
     Remove-Item -LiteralPath $fullPath -Force
 }
 
-function Assert-WindowsGuiExecutable {
-    param([Parameter(Mandatory)] [string] $Path)
+function Assert-WindowsExecutable {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [ValidateSet(2, 3)] [int] $ExpectedSubsystem
+    )
 
-    $bytes = [System.IO.File]::ReadAllBytes($Path)
-    if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
-        throw "Published executable has an invalid DOS header: $Path"
+    # Inspect bounded headers, not the whole executable. This is not signature/trust validation.
+    $stream = [System.IO.File]::OpenRead($Path)
+    $reader = [System.IO.BinaryReader]::new($stream)
+    try {
+        if ($stream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            throw "Published executable has an invalid DOS header: $Path"
+        }
+        $stream.Position = 0x3C
+        $peOffset = [long] $reader.ReadInt32()
+        if ($peOffset -lt 64 -or $peOffset + 24 -gt $stream.Length) {
+            throw "Published executable has an invalid PE offset: $Path"
+        }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) {
+            throw "Published executable has an invalid PE signature: $Path"
+        }
+        $machine = $reader.ReadUInt16()
+        $stream.Position = $peOffset + 20
+        $optionalSize = $reader.ReadUInt16()
+        $characteristics = $reader.ReadUInt16()
+        $optionalHeader = $peOffset + 24
+        if ($optionalSize -lt 0x70 -or $optionalHeader + $optionalSize -gt $stream.Length) {
+            throw "Published executable has an invalid optional header: $Path"
+        }
+        $stream.Position = $optionalHeader
+        $magic = $reader.ReadUInt16()
+        $stream.Position = $optionalHeader + 0x44
+        $subsystem = $reader.ReadUInt16()
+        if ($machine -ne 0x8664 -or $magic -ne 0x20B -or $subsystem -ne $ExpectedSubsystem `
+            -or ($characteristics -band 0x0002) -eq 0 -or ($characteristics -band 0x2000) -ne 0) {
+            throw "Published executable must be x64 PE32+ EXE with subsystem $ExpectedSubsystem (GUI=2, Console=3): $Path"
+        }
     }
-
-    $peOffset = [System.BitConverter]::ToInt32($bytes, 0x3C)
-    if ($peOffset -lt 0 -or $peOffset + 96 -gt $bytes.Length) {
-        throw "Published executable has an invalid PE offset: $Path"
-    }
-
-    if ($bytes[$peOffset] -ne 0x50 -or
-        $bytes[$peOffset + 1] -ne 0x45 -or
-        $bytes[$peOffset + 2] -ne 0 -or
-        $bytes[$peOffset + 3] -ne 0) {
-        throw "Published executable has an invalid PE signature: $Path"
-    }
-
-    $machine = [System.BitConverter]::ToUInt16($bytes, $peOffset + 4)
-    $optionalHeader = $peOffset + 24
-    $magic = [System.BitConverter]::ToUInt16($bytes, $optionalHeader)
-    $subsystem = [System.BitConverter]::ToUInt16($bytes, $optionalHeader + 0x44)
-    if ($machine -ne 0x8664 -or $magic -ne 0x20B -or $subsystem -ne 2) {
-        throw "Published executable must be an x64 PE32+ Windows GUI binary: $Path"
+    finally {
+        $reader.Dispose()
     }
 }
 
@@ -157,6 +172,48 @@ function Merge-PublishedDirectory {
     }
 }
 
+function Sync-SafeDirectoryInPlace {
+    param(
+        [Parameter(Mandatory)] [string] $Source,
+        [Parameter(Mandatory)] [string] $Destination,
+        [Parameter(Mandatory)] [string] $TrustedRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
+        New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    }
+    Assert-NoReparsePoints -Path $Destination -TrustedRoot $TrustedRoot
+
+    $expectedRelative = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($sourceFile in Get-ChildItem -LiteralPath $Source -File -Recurse) {
+        $relativePath = [System.IO.Path]::GetRelativePath($Source, $sourceFile.FullName)
+        $null = $expectedRelative.Add($relativePath)
+        $destinationFile = Join-Path $Destination $relativePath
+        $destinationDirectory = Split-Path -Parent $destinationFile
+        if (-not (Test-Path -LiteralPath $destinationDirectory -PathType Container)) {
+            New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+        }
+        Assert-NoReparsePoints -Path $destinationDirectory -TrustedRoot $TrustedRoot
+        Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationFile -Force
+    }
+
+    foreach ($existingFile in Get-ChildItem -LiteralPath $Destination -File -Recurse) {
+        $relativePath = [System.IO.Path]::GetRelativePath($Destination, $existingFile.FullName)
+        if (-not $expectedRelative.Contains($relativePath)) {
+            Remove-Item -LiteralPath $existingFile.FullName -Force
+        }
+    }
+
+    foreach ($dir in Get-ChildItem -LiteralPath $Destination -Directory -Recurse | Sort-Object { $_.FullName.Length } -Descending) {
+        if (($dir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Publish path cannot contain a reparse point: $($dir.FullName)"
+        }
+        if (-not (Get-ChildItem -LiteralPath $dir.FullName -Force)) {
+            Remove-Item -LiteralPath $dir.FullName -Force
+        }
+    }
+}
+
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $artifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'artifacts'))
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -165,7 +222,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 
 $outputPath = Assert-PathInsideDirectory -Path $OutputDirectory -Directory $artifactsRoot `
     -Description 'OutputDirectory'
-$previousPath = Assert-PathInsideDirectory -Path "$outputPath.previous" -Directory $artifactsRoot `
+$previousPath = Assert-PathInsideDirectory -Path (Join-Path $artifactsRoot 'rollback\win-x64.previous') -Directory $artifactsRoot `
     -Description 'Previous release directory'
 $stagingParent = Join-Path $artifactsRoot '.staging'
 $stagingPath = Join-Path $stagingParent ([guid]::NewGuid().ToString('N'))
@@ -182,6 +239,11 @@ $projects = @(
         Destination = $packagePath
     },
     @{
+        Name = 'Cli'
+        Path = 'src\SystemAutorun.Cli\SystemAutorun.Cli.csproj'
+        Destination = (Join-Path $packagePath 'cli')
+    },
+    @{
         Name = 'Agent'
         Path = 'src\SystemAutorun.Agent\SystemAutorun.Agent.csproj'
         Destination = (Join-Path $packagePath 'runtime')
@@ -193,7 +255,7 @@ $projects = @(
     }
 )
 
-$previousMoved = $false
+$previousBackedUp = $false
 $activated = $false
 try {
     New-Item -ItemType Directory -Path $packagePath | Out-Null
@@ -201,6 +263,7 @@ try {
     foreach ($project in $projects) {
         $componentPath = Join-Path $stagingPath (Join-Path 'components' $project.Name)
         New-Item -ItemType Directory -Path $componentPath | Out-Null
+        $readyToRun = if ($project.Name -in @('App', 'Cli')) { 'true' } else { 'false' }
         $arguments = @(
             'publish',
             (Join-Path $projectRoot $project.Path),
@@ -208,7 +271,7 @@ try {
             '--runtime', 'win-x64',
             '--self-contained', 'true',
             '--output', $componentPath,
-            '-p:PublishReadyToRun=false',
+            "-p:PublishReadyToRun=$readyToRun",
             '-p:PublishTrimmed=false',
             '-p:DebugType=None',
             '-p:DebugSymbols=false'
@@ -225,20 +288,50 @@ try {
         if (-not (Test-Path -LiteralPath $project.Destination -PathType Container)) {
             New-Item -ItemType Directory -Path $project.Destination | Out-Null
         }
+        if ($project.Name -eq 'Cli') {
+            foreach ($wpfFile in @('PresentationFramework.dll', 'PresentationCore.dll', 'wpfgfx_cor3.dll', 'PresentationNative_cor3.dll')) {
+                if (Test-Path -LiteralPath (Join-Path $componentPath $wpfFile)) {
+                    throw "CLI must not include the WPF runtime: $wpfFile"
+                }
+            }
+        }
         Merge-PublishedDirectory -Source $componentPath -Destination $project.Destination
     }
 
     $requiredFiles = @(
-        'SystemAutorun.exe',
+        'Vigil.exe',
         'SystemAutorun.Core.dll',
         'SystemAutorun.Windows.dll',
-        'SystemAutorun.runtimeconfig.json',
-        'runtime\SystemAutorun.Agent.exe',
-        'runtime\SystemAutorun.Elevated.exe',
+        'Vigil.runtimeconfig.json',
+        'Vigil.dll',
+        'Vigil.deps.json',
+        'cli\vigil.exe',
+        'cli\vigil.dll',
+        'cli\vigil.deps.json',
+        'cli\vigil.runtimeconfig.json',
+        'cli\SystemAutorun.Core.dll',
+        'cli\coreclr.dll',
+        'cli\hostfxr.dll',
+        'cli\hostpolicy.dll',
+        'cli\System.Private.CoreLib.dll',
+        'coreclr.dll',
+        'hostfxr.dll',
+        'hostpolicy.dll',
+        'System.Private.CoreLib.dll',
+        'runtime\Vigil.Agent.exe',
+        'runtime\Vigil.Agent.dll',
+        'runtime\Vigil.Agent.deps.json',
+        'runtime\Vigil.Elevated.exe',
+        'runtime\Vigil.Elevated.dll',
+        'runtime\Vigil.Elevated.deps.json',
+        'runtime\coreclr.dll',
+        'runtime\hostfxr.dll',
+        'runtime\hostpolicy.dll',
+        'runtime\System.Private.CoreLib.dll',
         'runtime\SystemAutorun.Core.dll',
         'runtime\SystemAutorun.Windows.dll',
-        'runtime\SystemAutorun.Agent.runtimeconfig.json',
-        'runtime\SystemAutorun.Elevated.runtimeconfig.json'
+        'runtime\Vigil.Agent.runtimeconfig.json',
+        'runtime\Vigil.Elevated.runtimeconfig.json'
     )
     foreach ($requiredFile in $requiredFiles) {
         $path = Join-Path $packagePath $requiredFile
@@ -247,12 +340,20 @@ try {
         }
     }
 
-    foreach ($executable in @(
-        'SystemAutorun.exe',
-        'runtime\SystemAutorun.Agent.exe',
-        'runtime\SystemAutorun.Elevated.exe'
-    )) {
-        Assert-WindowsGuiExecutable -Path (Join-Path $packagePath $executable)
+    $entryPoints = @(
+        @{ Path = 'Vigil.exe'; Subsystem = 2 },
+        @{ Path = 'cli\vigil.exe'; Subsystem = 3 },
+        @{ Path = 'runtime\Vigil.Agent.exe'; Subsystem = 2 },
+        @{ Path = 'runtime\Vigil.Elevated.exe'; Subsystem = 2 }
+    )
+    foreach ($entry in $entryPoints) {
+        Assert-WindowsExecutable -Path (Join-Path $packagePath $entry.Path) -ExpectedSubsystem $entry.Subsystem
+        $configPath = [System.IO.Path]::ChangeExtension((Join-Path $packagePath $entry.Path), '.runtimeconfig.json')
+        $options = ([System.IO.File]::ReadAllText($configPath) | ConvertFrom-Json).runtimeOptions
+        if ($null -eq $options -or $null -ne $options.framework -or $null -ne $options.frameworks `
+            -or 'Microsoft.NETCore.App' -notin @($options.includedFrameworks.name)) {
+            throw "Entry point must use its bundled self-contained runtime: $($entry.Path)"
+        }
     }
 
     $manifestFiles = foreach ($file in Get-ChildItem -LiteralPath $packagePath -File -Recurse |
@@ -287,17 +388,20 @@ try {
     Assert-NoReparsePoints -Path $outputPath -TrustedRoot $artifactsRoot
     Assert-NoReparsePoints -Path $previousPath -TrustedRoot $artifactsRoot
     if (Test-Path -LiteralPath $outputPath) {
-        Move-Item -LiteralPath $outputPath -Destination $previousPath
-        $previousMoved = $true
+        Sync-SafeDirectoryInPlace -Source $outputPath -Destination $previousPath -TrustedRoot $artifactsRoot
+        $previousBackedUp = $true
+        # Keep artifacts\publish\win-x64 in place so Explorer/Directory Opus handles never follow a backup rename.
+        Sync-SafeDirectoryInPlace -Source $packagePath -Destination $outputPath -TrustedRoot $artifactsRoot
     }
-
-    Move-Item -LiteralPath $packagePath -Destination $outputPath
+    else {
+        Move-Item -LiteralPath $packagePath -Destination $outputPath
+    }
     $activated = $true
 }
 catch {
-    if ($previousMoved -and -not $activated -and -not (Test-Path -LiteralPath $outputPath)) {
-        Move-Item -LiteralPath $previousPath -Destination $outputPath
-        $previousMoved = $false
+    if ($previousBackedUp -and -not $activated -and (Test-Path -LiteralPath $previousPath)) {
+        try { Sync-SafeDirectoryInPlace -Source $previousPath -Destination $outputPath -TrustedRoot $artifactsRoot }
+        catch { Write-Warning "Rollback in-place sync failed: $($_.Exception.Message)" }
     }
 
     throw

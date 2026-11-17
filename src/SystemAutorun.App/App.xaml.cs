@@ -4,11 +4,9 @@ using System.Text;
 using SystemAutorun.App.Dialogs;
 using SystemAutorun.App.Services;
 using SystemAutorun.App.ViewModels;
-using SystemAutorun.Core.Configuration;
 using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Core.Ipc;
 using SystemAutorun.Core.Models;
-using SystemAutorun.Windows.Startup;
 
 namespace SystemAutorun.App;
 
@@ -19,8 +17,33 @@ public partial class App : System.Windows.Application
     private TrayService? _trayService;
     private MainWindow? _mainWindow;
     private MainWindowViewModel? _mainViewModel;
-    private StartupManager? _startupManager;
     private ProjectPaths? _paths;
+    private readonly bool _runRuntimeStartup;
+    private readonly ToolWindowLifetimes _toolLifetimes = new();
+
+    static App()
+    {
+        System.Windows.FrameworkElement.LanguageProperty.OverrideMetadata(
+            typeof(System.Windows.FrameworkElement),
+            new System.Windows.FrameworkPropertyMetadata(System.Windows.Markup.XmlLanguage.GetLanguage("zh-CN")));
+    }
+
+    internal void TrackToolWindow(ToolWindow window)
+    {
+        // Resource-only WPF test Applications span unrelated STA fixtures; they use isolated registries.
+        if (_runRuntimeStartup) { _toolLifetimes.Track(window); }
+    }
+
+    public App() : this(runRuntimeStartup: true)
+    {
+    }
+
+    // WPF queues OnStartup in its constructor, not just in Run(). Resource/UI
+    // tests must not parse testhost arguments or start production services.
+    internal App(bool runRuntimeStartup)
+    {
+        _runRuntimeStartup = runRuntimeStartup;
+    }
 
     public static App CurrentApp => (App)Current;
 
@@ -28,57 +51,77 @@ public partial class App : System.Windows.Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        WindowTheme.Install();
         base.OnStartup(e);
-        var arguments = AppArguments.Parse(e.Args);
-        _singleInstance = new SingleInstanceService();
-        if (!_singleInstance.IsPrimary)
+        if (!_runRuntimeStartup)
         {
-            if (!arguments.Background)
-            {
-                try
-                {
-                    await _singleInstance.NotifyPrimaryAsync();
-                }
-                catch (Exception exception) when (exception is IOException or TimeoutException)
-                {
-                    // The primary instance may still be creating its activation pipe.
-                }
-            }
-
-            await _singleInstance.DisposeAsync();
-            _singleInstance = null;
-            Shutdown();
             return;
         }
 
+        // R106: gray-white or dark palette from the per-user preference (default: follow Windows).
+        ThemeService.Install();
+
+        var arguments = new AppArguments(e.Args.Contains("--background", StringComparer.Ordinal), null);
+        MainWindow? createdWindow = null;
         try
         {
+            arguments = AppArguments.Parse(e.Args);
             _paths = ProjectPaths.Resolve(arguments.RootDirectory);
-            var client = new AgentClient();
-            _agentManager = new AgentProcessManager(client, _paths);
-            await _agentManager.EnsureRunningAsync();
+            var endpoint = AgentProtocol.ForRoot(_paths.RootDirectory);
+            _singleInstance = new SingleInstanceService(endpoint.AppInstanceName);
+            if (!_singleInstance.IsPrimary)
+            {
+                if (!arguments.Background)
+                {
+                    try
+                    {
+                        await _singleInstance.NotifyPrimaryAsync();
+                    }
+                    catch (Exception exception) when (exception is IOException or TimeoutException)
+                    {
+                        // The primary instance may still be creating its activation pipe.
+                    }
+                }
 
-            var configurationEditor = new ConfigurationFileEditor();
+                await _singleInstance.DisposeAsync();
+                _singleInstance = null;
+                Shutdown();
+                return;
+            }
+
+            var client = new AgentClient(_paths.RootDirectory);
+            _agentManager = new AgentProcessManager(client, _paths);
+            var ensureAgentTask = _agentManager.EnsureRunningAsync();
+
+            var configuration = new AgentConfigurationClient(client);
             var viewModel = new MainWindowViewModel(
                 client,
                 new NativeCacheStore(_paths.GuiCachePath),
-                new GuiSettingsStore(_paths.GuiSettingsPath),
+                configuration,
                 _paths,
-                configurationEditor);
+                new AgentRemoteHostReader(client, configuration));
             _mainViewModel = viewModel;
-            viewModel.IsSelfStartupEnabled = UserStartupRegistration.IsEnabled(
-                Environment.ProcessPath!,
-                _paths.RootDirectory);
-            _startupManager = new StartupManager(_paths);
-            _mainWindow = new MainWindow(
+            createdWindow = new MainWindow(
                 viewModel,
-                _startupManager,
+                new AgentStartupClient(client),
                 new StartupCacheStore(_paths.StartupCachePath));
-            MainWindow = _mainWindow;
+            WindowGeometry.Attach(createdWindow);
             _trayService = new TrayService(
                 ShowMainWindow,
                 () => viewModel.RefreshCommand.Execute(null),
+                () =>
+                {
+                    if (viewModel.DoctorCommand.CanExecute(null))
+                    {
+                        viewModel.DoctorCommand.Execute(null);
+                    }
+                },
+                () => viewModel.OpenLogsCommand.Execute(null),
                 RequestExit);
+            await ensureAgentTask;
+
+            _mainWindow = createdWindow;
+            MainWindow = createdWindow;
             _singleInstance.StartListening(() => Dispatcher.BeginInvoke(ShowMainWindow));
 
             if (!arguments.Background)
@@ -93,7 +136,7 @@ public partial class App : System.Windows.Application
             await WriteStartupFailureAsync(arguments.RootDirectory, exception);
             if (!arguments.Background)
             {
-                if (_mainWindow is not null)
+                if (_mainWindow is { IsVisible: true })
                 {
                     MessageDialog.ShowError(_mainWindow, "启动失败", exception.Message);
                 }
@@ -101,12 +144,13 @@ public partial class App : System.Windows.Application
                 {
                     System.Windows.MessageBox.Show(
                         exception.Message,
-                        "SystemAutorun 启动失败",
+                        "Vigil 启动失败",
                         MessageBoxButton.OK,
                         MessageBoxImage.Error);
                 }
             }
 
+            _mainWindow ??= createdWindow;
             RequestExit();
         }
     }
@@ -114,41 +158,16 @@ public partial class App : System.Windows.Application
     internal void ShowTrayInfo(string title, string message) =>
         _trayService?.ShowInfo(title, message);
 
-    internal void SetSelfStartup(bool enabled)
+    internal void OpenSelfStartup(Window owner, UIElement? returnFocus = null)
     {
-        if (_paths is null || string.IsNullOrWhiteSpace(Environment.ProcessPath))
-        {
-            return;
-        }
-
-        try
-        {
-            UserStartupRegistration.SetEnabled(enabled, Environment.ProcessPath, _paths.RootDirectory);
-            if (_mainViewModel is not null)
-            {
-                _mainViewModel.IsSelfStartupEnabled = enabled;
-            }
-
-            ShowTrayInfo(
-                "SystemAutorun",
-                enabled ? "已启用登录后后台启动。" : "已关闭登录后后台启动。");
-        }
-        catch (Exception exception) when (
-            exception is UnauthorizedAccessException or IOException or System.Security.SecurityException)
-        {
-            if (_mainViewModel is not null)
-            {
-                _mainViewModel.IsSelfStartupEnabled = UserStartupRegistration.IsEnabled(
-                    Environment.ProcessPath,
-                    _paths.RootDirectory);
-            }
-
-            if (_mainWindow is not null)
-            {
-                MessageDialog.ShowError(_mainWindow, "自启动设置失败", exception.Message);
-            }
-        }
+        if (_paths is null || IsExiting) { return; }
+        try { SelfStartupTool.Open(owner, _paths, returnFocus); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        { MessageDialog.ShowError(owner, "登录启动工具不可用", exception.Message); }
     }
+
+    internal RecoveryViewModel? CreateRecoveryModel(string name) =>
+        _paths is null || IsExiting ? null : new RecoveryViewModel(_paths, name);
 
     internal async void RunElevated(string command)
     {
@@ -158,27 +177,17 @@ public partial class App : System.Windows.Application
             MessageDialog.ShowError(
                 _mainWindow,
                 "管理员操作失败",
-                "提权 Helper 执行失败，详情已写入 %LOCALAPPDATA%\\SystemAutorun\\logs\\elevated.log。");
+                "提权 Helper 执行失败，详情已写入 %LOCALAPPDATA%\\Vigil\\logs\\elevated.log。");
         }
     }
 
-    internal Task<bool> RunElevatedStartupMutationAsync(StartupEntry entry, string action)
-    {
-        return action switch
-        {
-            "disable" => RunElevatedAsync(
-                "startup-disable",
-                new[] { "--source", entry.Source, "--name", entry.Name, "--origin", entry.Origin }),
-            "restore" when entry.BackupId is not null => RunElevatedAsync(
-                "startup-restore",
-                new[] { "--backup-id", entry.BackupId }),
-            _ => Task.FromResult(false),
-        };
-    }
+    // Compatibility bridge only. Native startup writes stay closed until the
+    // protected shared workflow is complete; never ask runas to use the old path.
+    internal Task<bool> RunElevatedStartupMutationAsync(StartupEntry entry, string action) => Task.FromResult(false);
 
     private async Task<bool> RunElevatedAsync(string command, IReadOnlyList<string> extraArguments)
     {
-        if (_paths is null)
+        if (!ElevatedCommandPolicy.IsSupported(command) || _paths is null)
         {
             return false;
         }
@@ -205,7 +214,7 @@ public partial class App : System.Windows.Application
             await process.WaitForExitAsync();
             if (process.ExitCode == 0)
             {
-                ShowTrayInfo("SystemAutorun", "管理员操作已完成。");
+                ShowTrayInfo("Vigil", "管理员操作已完成。");
                 return true;
             }
 
@@ -213,7 +222,7 @@ public partial class App : System.Windows.Application
         }
         catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
         {
-            ShowTrayInfo("SystemAutorun", "管理员操作已取消。");
+            ShowTrayInfo("Vigil", "管理员操作已取消。");
             return false;
         }
         catch (Exception exception) when (exception is Win32Exception or FileNotFoundException)
@@ -227,7 +236,10 @@ public partial class App : System.Windows.Application
         }
     }
 
-    internal async void RequestExit()
+    internal async void RequestExit() => await RequestExitAsync(Shutdown);
+
+    // The final dispatcher action is injectable so isolated tests never shut down their shared Application.
+    internal async Task RequestExitAsync(Action shutdown, ToolWindowLifetimes? lifetimes = null)
     {
         if (IsExiting)
         {
@@ -235,7 +247,13 @@ public partial class App : System.Windows.Application
         }
 
         IsExiting = true;
+        var tools = (lifetimes ?? _toolLifetimes).BeginExit(); // Freeze admission/capture pending lifetimes before the first await.
         var cleanupFailures = new List<Exception>();
+        if (_mainViewModel is not null)
+        {
+            try { await _mainViewModel.FlushSettingsAsync(); }
+            catch (Exception exception) { cleanupFailures.Add(new InvalidOperationException("Pending settings save failed.", exception)); }
+        }
 
         var trayService = _trayService;
         _trayService = null;
@@ -243,11 +261,7 @@ public partial class App : System.Windows.Application
 
         var mainWindow = _mainWindow;
         _mainWindow = null;
-        CaptureCleanupFailure(() => mainWindow?.Close(), "Main window", cleanupFailures);
-
-        var startupManager = _startupManager;
-        _startupManager = null;
-        CaptureCleanupFailure(() => startupManager?.Dispose(), "Startup manager", cleanupFailures);
+        cleanupFailures.AddRange(await tools.CloseAndDrainAsync(() => mainWindow?.Close()));
 
         var agentManager = _agentManager;
         _agentManager = null;
@@ -286,7 +300,7 @@ public partial class App : System.Windows.Application
         }
         finally
         {
-            Shutdown();
+            shutdown();
         }
     }
 
@@ -307,7 +321,7 @@ public partial class App : System.Windows.Application
 
     private void ShowMainWindow()
     {
-        if (_mainWindow is null)
+        if (_mainWindow is null || IsExiting)
         {
             return;
         }
@@ -317,23 +331,23 @@ public partial class App : System.Windows.Application
 
     private static string ResolveElevatedPath(ProjectPaths paths)
     {
-        var configured = Environment.GetEnvironmentVariable("SYSTEMAUTORUN_ELEVATED_PATH");
+        var configured = Environment.GetEnvironmentVariable("VIGIL_ELEVATED_PATH");
         var candidates = new List<string?>
         {
             configured,
-            Path.Combine(AppContext.BaseDirectory, "runtime", "SystemAutorun.Elevated.exe"),
-            Path.Combine(AppContext.BaseDirectory, "SystemAutorun.Elevated.exe"),
+            Path.Combine(AppContext.BaseDirectory, "runtime", "Vigil.Elevated.exe"),
+            Path.Combine(AppContext.BaseDirectory, "Vigil.Elevated.exe"),
         };
         var developmentRoot = Path.Combine(paths.RootDirectory, "src", "SystemAutorun.Elevated", "bin");
         if (Directory.Exists(developmentRoot))
         {
             candidates.AddRange(Directory
-                .EnumerateFiles(developmentRoot, "SystemAutorun.Elevated.exe", SearchOption.AllDirectories)
+                .EnumerateFiles(developmentRoot, "Vigil.Elevated.exe", SearchOption.AllDirectories)
                 .OrderByDescending(File.GetLastWriteTimeUtc));
         }
 
         return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-            ?? throw new FileNotFoundException("SystemAutorun.Elevated.exe was not found.");
+            ?? throw new FileNotFoundException("Vigil.Elevated.exe was not found.");
     }
 
     private static async Task WriteStartupFailureAsync(string? rootDirectory, Exception exception)
@@ -341,7 +355,7 @@ public partial class App : System.Windows.Application
         try
         {
             var directory = string.IsNullOrWhiteSpace(rootDirectory)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemAutorun")
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vigil")
                 : Path.Combine(rootDirectory, "logs");
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, "app-startup-error.log");
@@ -363,7 +377,7 @@ public partial class App : System.Windows.Application
         try
         {
             var directory = string.IsNullOrWhiteSpace(rootDirectory)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemAutorun")
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vigil")
                 : Path.Combine(rootDirectory, "logs");
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, "app-lifecycle.log");
@@ -385,22 +399,8 @@ public partial class App : System.Windows.Application
     {
         internal static AppArguments Parse(IReadOnlyList<string> arguments)
         {
-            var background = false;
-            string? rootDirectory = null;
-            for (var index = 0; index < arguments.Count; index++)
-            {
-                switch (arguments[index])
-                {
-                    case "--background":
-                        background = true;
-                        break;
-                    case "--root" when index + 1 < arguments.Count:
-                        rootDirectory = arguments[++index];
-                        break;
-                }
-            }
-
-            return new AppArguments(background, rootDirectory);
+            var parsed = ProcessLaunchArguments.Parse(arguments, allowBackground: true);
+            return new AppArguments(parsed.Background, parsed.RootDirectory);
         }
     }
 }

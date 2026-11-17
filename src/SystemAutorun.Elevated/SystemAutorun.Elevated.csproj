@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <AssemblyName>SystemAutorun.Elevated</AssemblyName>
+    <AssemblyName>Vigil.Elevated</AssemblyName>
+    <Product>Vigil Elevated Host</Product>
+    <AssemblyTitle>Vigil.Elevated</AssemblyTitle>
     <RootNamespace>SystemAutorun.Elevated</RootNamespace>
     <ApplicationIcon>..\..\icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>

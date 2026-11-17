@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Core.Ipc;
 using SystemAutorun.Core.Models;
 
@@ -24,7 +25,7 @@ internal sealed class NativeCacheStore
 
         try
         {
-            await using var stream = File.OpenRead(_path);
+            await using var stream = SnapshotFile.OpenRead(_path);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
             var root = document.RootElement;
@@ -60,7 +61,7 @@ internal sealed class NativeCacheStore
                 json,
                 new UTF8Encoding(false),
                 cancellationToken).ConfigureAwait(false);
-            File.Move(tempPath, _path, true);
+            SnapshotFile.Publish(tempPath, _path);
         }
         finally
         {
@@ -93,6 +94,7 @@ internal sealed class NativeCacheStore
                 var typeKey = GetString(item, "type") ?? "windows";
                 var type = typeKey switch
                 {
+                    "windows_service" => AutorunTaskType.WindowsService,
                     "wsl_boot" => AutorunTaskType.WslBoot,
                     "wsl_systemd" => AutorunTaskType.WslSystemd,
                     "wsl_command" => AutorunTaskType.WslCommand,

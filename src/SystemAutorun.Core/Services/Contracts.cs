@@ -8,6 +8,10 @@ public interface IHealthProbe
         AutorunTask task,
         bool quick,
         CancellationToken cancellationToken = default);
+
+    // Passive observations must not activate a workload just to determine its health.
+    Task<HealthResult> CheckPassiveAsync(AutorunTask task, CancellationToken cancellationToken = default) =>
+        CheckAsync(task, quick: true, cancellationToken);
 }
 
 public interface ITaskExecutor

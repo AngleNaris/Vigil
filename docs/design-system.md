@@ -1,97 +1,954 @@
 # SystemAutorun Design System
 
-SystemAutorun is a dense Windows operations tool. Its interface stays quiet,
-compact, and optimized for repeated scanning and action rather than decorative
-presentation. The native WPF rewrite uses Wpf.Ui for theme infrastructure and
-window chrome while preserving the product-owned visual identity.
+当前主屏依据为本文末尾的 [用户批准 r4](<#2026-10-31--用户批准的-r4-主界面>)；
+下述旧版主题及布局仅供迁移对照，不覆盖 r4。其他对话框保留信息架构，继承共享 token。
+
+SystemAutorun 是高频使用的 Windows 家庭服务器运维工具。界面采用工业暗色控制台：
+安静、紧凑、直角、信息密度高，优先支持扫描、比较和重复操作，而不是展示型视觉。
+MaterialDesignInXamlToolkit 负责基础控件行为，产品自身掌握颜色、尺寸和交互层级。
 
 ## Principles
 
-- Dark, neutral work surface with restrained purple interaction accents.
-- Square geometry throughout. Cards, buttons, inputs, tables, badges, and
-  dialogs use a zero corner radius.
-- Information density over oversized headings or decorative cards.
-- Status is always expressed with text and color: `OK`, `FAIL`, and `OFF`.
-- Cached content renders immediately; refresh and command progress are explicit.
-- Disabled, loading, focused, selected, success, warning, and error states are
-  visually distinct.
+- 深色中性工作面，青蓝用于交互焦点，绿/黄/红独立表达健康、警告和故障。
+- 卡片、按钮、输入框、表格、徽标和窗口均使用直角与 1 px 分隔线。
+- 状态同时使用文字和颜色：`OK`、`FAIL`、`OFF`，不只依赖颜色。
+- 本机资源、常驻工作负载和异常日志都能从一级导航直接到达。
+- 顶部主机 Tab 明确区分本机和远程 Windows/Linux 主机。
+- 缓存先显示，刷新和命令执行状态始终可见。
+- 不使用装饰性渐变、光球、嵌套卡片或营销式大标题。
 
-## Three-Layer Tokens
+## Tokens
 
 ### Primitive
 
 | Token | Value | Purpose |
 | --- | --- | --- |
-| `Color.Background.950` | `#131116` | Window background |
-| `Color.Surface.800` | `#211F27` | Primary card surface |
-| `Color.Surface.850` | `#1B191F` | Inset surface and controls |
-| `Color.Surface.700` | `#2C2932` | Hover surface |
-| `Color.Border.500` | `#4B4652` | Strong border |
-| `Color.Border.700` | `#332F39` | Subtle divider |
-| `Color.Text.100` | `#E6E0E9` | Primary text |
-| `Color.Text.300` | `#C8C0D0` | Secondary text |
-| `Color.Text.500` | `#9E90A8` | Hint and off text |
-| `Color.Purple.600` | `#58418F` | Primary action |
-| `Color.Purple.500` | `#6750A4` | Primary hover |
-| `Color.Purple.300` | `#BFABF1` | Focus and accent |
-| `Color.Success.400` | `#7EE787` | Healthy state |
-| `Color.Error.300` | `#FFB4AB` | Failed and destructive state |
-| `Color.Warning.300` | `#FFD166` | Warning state |
+| `Color.Background.950` | `#0B0E11` | Window background |
+| `Color.Surface.800` | `#151A1F` | Primary work surface |
+| `Color.Surface.850` | `#101419` | Inset and navigation surface |
+| `Color.Surface.700` | `#20272D` | Hover surface |
+| `Color.Border.500` | `#36414A` | Strong border |
+| `Color.Border.700` | `#252D33` | Subtle divider |
+| `Color.Text.100` | `#EDF4F7` | Primary text |
+| `Color.Text.300` | `#B7C4CA` | Secondary text |
+| `Color.Text.500` | `#77868E` | Hint and off text |
+| `Color.Cyan.600` | `#007C91` | Primary action |
+| `Color.Cyan.500` | `#00A2B8` | Primary hover |
+| `Color.Cyan.300` | `#66E0F0` | Focus and active accent |
+| `Color.Cyan.Selection` | `#10333B` | Selection surface |
+| `Color.Success.400` | `#61D68A` | Healthy state |
+| `Color.Warning.300` | `#F6C85F` | Warning state |
+| `Color.Error.300` | `#FF7A85` | Failed state |
+| `Color.Critical.300` | `#FF4D6D` | Critical log state |
+| `Color.Info.300` | `#6AA9FF` | Informational resource state |
+| `Color.Terminal.950` | `#080B0E` | Log detail terminal |
 
-Spacing follows a 4 px base scale: `4, 8, 12, 16, 18, 24`. Typography uses
-Microsoft YaHei UI with Segoe UI fallback. The base size is 13 px; supporting
-sizes are 11, 12, 14, 16, 20, and 24 px. Letter spacing is always zero.
+Spacing follows a 4 px base scale: `4, 8, 12, 16, 18, 24`. Interface text uses
+Microsoft YaHei UI with Segoe UI fallback; logs use Cascadia Code with Consolas
+fallback. Base size is 13 px and letter spacing remains zero.
 
 ### Semantic
 
-- `WindowBackground` maps to `Color.Background.950`.
-- `SurfacePrimary`, `SurfaceInset`, and `SurfaceHover` map to surface primitives.
-- `TextPrimary`, `TextSecondary`, and `TextHint` map to text primitives.
-- `ActionPrimary`, `ActionPrimaryHover`, and `FocusAccent` map to purple.
-- `StatusHealthy`, `StatusFailed`, `StatusDisabled`, and `StatusWarning` map to
-  the corresponding state primitives.
-- `BorderStrong` and `BorderSubtle` define hierarchy without shadows.
+- `WindowBackground`, `SurfacePrimary`, `SurfaceInset`, `SurfaceHover`
+- `TextPrimary`, `TextSecondary`, `TextHint`, `TextDisabled`
+- `ActionPrimary`, `ActionPrimaryHover`, `ActionPrimaryPressed`, `FocusAccent`
+- `StatusHealthy`, `StatusWarning`, `StatusFailed`, `StatusCritical`, `StatusDisabled`
+- `BorderStrong`, `BorderSubtle`, `TerminalBackground`
 
 ### Component
 
-- Main buttons are at least 32 px high; toolbar buttons are at least 30 px high.
-  Task action buttons use a 3 px left
-  accent border.
-- Inputs are at least 32 px high with 10 px horizontal padding.
-- Task rows are 34 px high. Headers and cells use compact 8-12 px padding.
-- Status badges are at least 62 x 24 px with a 1 px status-colored border.
-- Busy indicators are 4 px high and use `FocusAccent`.
-- Scrollbars are 8 px wide. Cards use a 1 px border and no shadow.
-
-## Wpf.Ui Bridge
-
-- `ThemesDictionary` and `ControlsDictionary` provide the dark theme and native
-  control infrastructure.
-- `WpfUiOverrides.xaml` maps Wpf.Ui background, text, border, and accent
-  resources back to the primitive token layer instead of accepting system
-  accent colors.
-- Every application window derives from `FluentWindow`, uses no backdrop, and
-  requests `WindowCornerPreference.DoNotRound`.
-- Product-owned WPF styles load after Wpf.Ui resources, preserving dense
-  spacing, square templates, 1 px borders, and purple focus states.
+- 左侧功能轨固定 68 px；按钮固定 68 x 58 px，避免状态变化导致布局跳动。
+- 顶部主机 Tab 高 50 px，显示状态点、名称、地址、平台和刷新时间。
+- 普通控件至少 32 px 高，工具栏图标按钮 34 px，表格行 34 px。
+- 状态徽标至少 52 x 22 px，使用 1 px 状态色边框。
+- 任务、常驻进程和异常日志使用虚拟化 DataGrid。
+- 日志详情使用终端背景和等宽字体。
+- 所有不熟悉的图标按钮都提供 ToolTip 和 AutomationProperties.Name。
 
 ## Layout Contract
 
-- Default window: 1360 x 880; minimum: 1180 x 760.
-- Page margins: 18 px horizontal, 14 px vertical; primary gap: 12 px.
-- Horizontal task/detail split starts near 3:2.
-- Detail panel width: 420-520 px, preferred 460 px.
-- Task columns: status, task, type, and health summary.
-- Primary task actions remain in a stable two-column grid.
+- 默认窗口：1320 x 820；最小窗口：1120 x 700。
+- 左侧为固定功能轨，右侧由主机 Tab、当前页面和 30 px 状态栏组成。
+- 一级页面：概览、工作负载、常驻进程、异常日志。
+- 概览页首屏展示主机身份、连接方式、运行时间、核心/进程/线程、CPU、内存、
+  存储和网络；下方为磁盘、网卡与运行保障详情。
+- 工作负载页保留筛选、任务表、可调整宽度的详情面板和完整操作。
+- 常驻进程页展示状态、PID、CPU、工作集、私有内存、线程和启动时间。
+- 异常日志页使用列表与终端详情双栏结构。
+- 远程主机只允许进入概览页；切换远程 Tab 时自动回到概览。
+- 底部状态栏在所有页面保持可见，承载状态消息、忙碌状态、自动刷新和采样时间。
 
 ## Interaction Contract
 
-- Render the last valid cache before asynchronous refresh.
-- Coalesce duplicate read requests and keep commands serialized per task.
-- Auto-refresh is opt-in and runs every 10 seconds.
-- Task actions stay disabled until a task is selected.
-- Closing the window may minimize to tray; explicit Exit stops only the UI and
-  user agent processes owned by SystemAutorun.
-- Background launch capability distinguishes no-console, hidden, minimized,
-  normal, tray-aware, and Windows-service execution. Hidden GUI launch is
-  best-effort unless the target application exposes a supported silent mode.
+- `F5` 刷新当前主机；`Ctrl+1` 至 `Ctrl+4` 切换一级页面。
+- `Ctrl+F` 聚焦当前列表页的搜索框；概览页不拦截该快捷键。
+- `Delete` 只在工作负载页且焦点不在文本框时触发移除确认。
+- 右键任务前先选择指针下的行，避免操作旧选中项。
+- 本机 Tab 提供完整管理能力；远程 Tab 只读取资源概况。
+- 自动刷新为用户控制，默认开启：本机资源（主机/进程）每 1 秒，健康探测、配置、异常日志与历史每 10 秒（R108）。
+- 自动恢复默认关闭，仅作用于当前用户、登录触发的本机工作负载，并有两分钟冷却。
+- `expected_running` 与工作负载类型无关；程序、Windows Service、WSL 服务或命令均可
+  被用户标记为应持续运行。
+
+## 2026-10-31 — 用户批准的 r4 主界面
+
+依据：[用户指定原图](<visual/sa-20261031/dashboard-approved-r4.png>) 与「按这个图来」指令。
+审批、数据含义及验收范围见 [当前架构入口](<architecture.md#sa-20261031--简化-gui完整-cli-与服务监测>)。
+
+- 主屏为服务选择与当前服务监控；顶部提供图标化搜索、筛选、刷新、主机与设置。
+  当前服务摘要、启停/重启/日志/更多、健康时间带、2×2 趋势指标沿批准图组织，
+  不再实现旧 68 px 导航轨、主机 Tab 或三套重复任务/进程表。
+- 近黑灰阶：工作面 `#070708`，次级面 `#0A0A0C`，选中面 `#131315`，
+  永久细分隔 `#232329`，正文 `#E4E4E7`，次级文字 `#8B8B94`，
+  禁用 `#52525B`，健康时间带 `#46464E`，异常强调 `#E11D48`，活动标记 `#F4F4F5`。
+  以原图与可读性为准，不沿用旧的大块青蓝选中面。
+- 使用细线、统一尺度的矢量图标，不放大图标充当装饰。文字保留必要身份/数值/单位；
+  短状态可用图标和提示替代常驻说明，但读屏名称、图表图例和错误详情不能丢失。
+- 中文正文主要 14–16 DIP，重要服务身份 20 DIP；关键读数使用 Cascadia Code/
+  Consolas 等宽数字，常规字重，避免粗黑大标题。12 DIP 只用于次要时间刻度/辅助信息，
+  不通过缩小全页来塞入内容。工具栏点击区域至少 32 DIP，实际图标通常 16–18 DIP。
+- 容器/控件保持直角、细结构线；不添加装饰阴影、渐变、光晕或嵌套卡片。选中项用
+  内部白条与轻微灰阶变化，键盘焦点用内部标记/下划线；任何操作都不出现外轮廓 ring。
+- 图表禁圆形；使用矩形健康时间带、微型直线/折线，禁止伪造资源或历史数据。
+  未知区间不连线补值，增加纹理/符号或可访问说明以区别正常灰条；红色仅表示已观测故障。
+  24 小时/7 天/30 天共用一个选择，所有显示明确说明窗口，曲线数据按该窗口采样聚合。
+- 原图 1620×651 为额外对照视口，默认 1320×820、最小 1120×700 继续支持。
+  宽度达到 1500 DIP 后允许高度降至 620 DIP，以容纳批准图的 651 高度；较窄窗口
+  仍保留 700 DIP 下限，不靠缩小字体适配。指标网格可重排/内部滚动，长服务名可折行；
+  不新增手机断点。空/离线/错误
+  保留同一骨架并显示真实未知，选中与筛选在刷新后尽可能保留。
+- 主机、日志、添加、原生启动项与远程设置保留原信息架构和权限，继承共享颜色/
+  字体/焦点合同；新布局另开对应 G2。快捷键、ToolTip、AutomationProperties.Name、
+  焦点恢复及 reduced-motion 规则继续生效。
+
+## 2026-11-01 — 启动项独立重建 G2 候选 r1（R23）
+
+**r1 未获批准，不是实现依据。** 用户要求整体布局与风格都沿用原批准参考，不是仅借配色。
+后续以本节之后的 r2 为当前候选，r1 仅留作生成/复核历史。G1-startup-r2 已经用户明确批准；
+[逻辑与 ST01–ST08](<architecture.md#2026-11-01--启动项观测与独立重建-g1-增量提案r23>)
+继续管业务含义，主屏 r4 不重做。关联产物如下：
+
+- [真实生成候选 r1](<visual/sa-20261031/startup-rebuild-g2-candidate-r1.png>)：1536×1024 PNG，
+  1,407,983 字节，SHA256 `990327da383e72c7a3ae78e944979418f605fb4f5014dd9a90543f8a4aac76da`。
+- [生成输入与固定样例 ST-F1](<visual/sa-20261031/startup-rebuild-g2-r1.prompt.md>)：纯功能/
+  风格文字、未附截图，由模型自主布局；订阅默认图像模型，工具未回报具体模型 ID，
+  size/quality 均为 auto。原始输出保留，项目副本逐字节校验一致。
+- 只覆盖当前用户的“原备份缺失 → 目标/参数/工作目录可修正 → 明确确认重建”关键视图，
+  以及登记、禁用和非文本只读行。不覆盖成功、UAC、真实持久化或全套错误旅程。
+
+### 像素复核与待审修正
+
+已实际查看生成像素，任务和独立重建可发现，未将创建叫作恢复；但 r1 不能直接照抄。
+以下是待用户连同图片一起审阅的修正契约，不是假称原图已经合规：
+
+| 证据 | 判定与最小修正 |
+| --- | --- |
+| “已登记”用了绿色实心勾，确认重建用了鲜红底。 | 与 r4 的灰阶交互/异常色分工冲突。登记使用中性细线图标，确认使用灰阶/白色主操作，红色只表示实际缺失/错误。 |
+| 状态区写“启动配置已存在，但当前处于禁用状态”。 | 原入口已移除，不能说入口仍存在；改成“有禁用记录，原快捷方式备份缺失”。不把登记当运行。 |
+| 多处重复已禁用、原备份缺失、重新创建等长说明。 | 收敛为必要身份、一个缺失提示和一句“重新创建，不是原备份还原”；不删确认依据或字段标签。 |
+| 旧版驱动样例给了 HKLM SafeBoot 路径。 | 生成文字错误，不能扩大固定源。样例仅显示 HKLM · Run，实际详情来自受支持 Run 路径，不使用 SafeBoot。 |
+| 输入框/按钮略有圆角与生成式阴影。 | 实装继续使用已有直角、永久细结构线和无装饰阴影的共享合同，不引入局部样式。 |
+
+列表只有四项留下的空间属于短样例内容，不增虚假统计、遥测或装饰卡片填充。首版选中
+与焦点继续用内部白条/下划线，拒绝 hover/focus/点击外框或仿制 ring。
+
+### 精确文案、状态与尺寸补充（待连同图批准）
+
+- 正常：`已登记`、`已禁用`；只读：`不支持的注册表类型 · 只读`。重建来源/名称固定，
+  可复制但不可编辑；禁止把非文本值字符串化为可纳管目标。
+- 缺失：`原备份缺失`，`无法从原备份恢复`，`重新创建，不是原备份还原`。
+  目标/参数/工作目录仍可修改；`取消` 不写入口，`确认重建` 只提交已预览的一组输入。
+- 提示：`仅支持本地 .exe/.com`、`目标可用性未验证`、`创建不会启动程序`。
+  后台不为显示这些信息探测目标。只有明确未找到算缺失，拒绝访问/未知不提供重建。
+- 其他状态继承同一框架：加载禁用动作；零来源可读显示读取失败而不是空；部分失败/
+  截断保留来源原因；过期缓存不能写；冲突保留输入并要求重新准备；unknown 只查原操作；
+  重建成功记为 rebuilt，不改成 restored。权限不足和高级诊断按需展开，不堆主屏。
+- 颜色/字体/图标继续使用 r4 的共享 token：中文主体 14–16 DIP，辅助不低于 12 DIP，
+  图标 16–18 DIP，常规字重，路径等宽；实装按角色核验对比度，不从 PNG 猜测测量值。
+- 目标窗口沿现有启动项对话框 820×480 最小、980×580 常用，另验 1400×820 与支持的
+  125%/150% 桌面缩放。PNG 不是 DIP；不按固定倍数压缩整图。空间不足时详情改为同窗
+  单任务视图并可返回列表，保留选择/筛选/输入；长值内部滚动/可展开，不缩字或截关键
+  确认信息。若实测需要新布局机制，重开相应 G2，不以文字规则任意偏离批准图。
+- 表单进入时焦点落在首个可编辑字段，键盘顺序按阅读顺序，Escape 等价取消/返回并
+  恢复逻辑触发项。提交/失败不丢输入；匹配进入/离开动效，支持 reduced-motion。
+
+G2 未批准前不实施新布局或写入口。批准后仍须更新最终实施计划并确认执行范围，依次
+落共享数据/动作边界、GUI 及 CLI 接线，再分别验证 VIS/FLOW/DATA/ENG；生成图不是
+G3 证据，现有构建通过也不能代替新旅程或机器权限验收。
+
+## 2026-11-01 — 沿原参考的启动项 G2 候选 r2（R23）
+
+**G2-startup-r2 与实施范围已批准；R34 已落实只读/配置纳管 GUI 子集，完整原生准备/重建界面仍未实现。** 用户于 2026-11-02 本地问答中明确
+选择“批准，按 r2 实施”，批准本节的原图、补充契约和实施边界，替代未获批准的 r1。
+用户此前明确要求沿原参考的整体布局与风格，并在
+后续问答确认 [r4 原参考](<visual/sa-20261031/dashboard-approved-r4.png>) 正确，允许本轮
+仅将这张原参考送入图像工具。不上传其他截图；这不是对所有项目纯文字生图约定的
+全局修改。实施许可来自上文独立的 G2/执行确认，不从参考输入许可推断。
+
+- [候选 r2](<visual/sa-20261031/startup-rebuild-g2-candidate-r2.png>)：1978×795 PNG，
+  1,298,998 字节，SHA256 `1588a225f0edd3534deef79710b060c134a607500a2ccffc00b39b2899db6493`。
+  原参考是 1620×651；实际生成比例相近，不声称像素一一相同。
+- [完整输入与参考身份](<visual/sa-20261031/startup-rebuild-g2-r2.prompt.md>) 绑定同一 ST-F1
+  合成样例。源图和两轮候选均保留，未覆写已有批准产物。已验证真实 PNG、完整解码与
+  项目副本 SHA256 一致；已实际查看像素。
+- r2 保留原参考的统一窗口骨架、工具、紧凑列表、选中摘要和按需内容的层级与比例，
+  白条选中、直角细线、灰阶主操作和克制字重。只替换启动项内容，不照搬服务监控曲线/
+  可用率，不另创管理面板。r1 的绿色勾、红色动作底、SafeBoot 文字与重复状态块已不见。
+
+### 已批准的 r2 补充契约
+
+1. 图片中的方块动作只能表达“禁用启动登记”，绝不是停止程序；当前已禁用记录该动作
+   不可用。回转动作是从原备份恢复，缺失时禁用并说明。行文图标打开记录/详情，更多
+   收纳诊断与原始元数据；图标须有准确 Tooltip/AutomationProperties.Name，不沿用服务
+   启停语义。列表“＋”只可映射已批准的纳管动作，无可纳管登记项时禁用，不新增任意
+   Startup 创建或永久删除入口。
+2. 名称/来源仅在所选摘要固定显示；目标、参数、工作目录可编辑。三者变更须重新准备，
+   按钮仅提交已经展示并明确确认的同一组输入。缺失提示不重复堆文案，精确说明沿用
+   G1 的“重新创建，不是原备份还原”“创建不启动程序”。目标可用性不由 UI 探测。
+3. 其他 G1 状态沿同一骨架和共享规则呈现：忙碌/缓存/来源不可读/部分失败/截断/冲突/
+   权限要求/unknown 不伪装正常，不破坏编辑输入。表单只在相关动作中出现；无相关
+   详情就不常驻空白检查器，普通条目不显示重建表单。审计/诊断按需打开，不堆在主屏。
+4. 沿用 r4 的 token、中文主体 14–16 DIP/辅助至少 12 DIP、细线真矢量图标、永久结构
+   细边和内部焦点标记，不缩放整图或引入交互外框/阴影 ring。图像纹理不是代码中新增
+   噪点层的依据。原主屏 r4 不重设计，共享组件变更须抽查原消费者。
+5. r2 整体框架采用 r4 桌面范围：最小 1120×700、常用 1320×820、宽屏 1620×651；
+   宽度达到 1500 时才允许降低至 620 高，另验 125%/150% 桌面缩放。r1 提出的旧对话框
+   820×480 不是本候选矩阵。长值内滚/展开或合理换行，关键操作不裁掉；无手机矩阵。
+6. 键盘按阅读顺序、Escape 取消/返回并恢复逻辑触发项；不丢筛选/选择/输入，动作的
+   进入退出匹配，支持 reduced-motion。生成图不是这些行为已经可用的证据。
+
+### 批准后的实施边界
+
+先统一共享只读观测、操作准备/结果与备份处置契约，再落受控后端与 GUI/CLI；涉及
+StartupManager/Inventory、Core 启动项模型与 IPC、Agent 启动项服务/客户端、CLI 对应路由、
+启动项窗口/视图模型及独占测试。先保住非文本/坏数据/来源错误与旧记录兼容；不先做
+一个能点却仍暗走旧路径的空表单。新写入口须先关闭既有信任、身份、跨 root 和恢复
+阻断缺口；不得因此执行真实系统启动项改写或提前开放 CLI。
+
+用户已批准按 r2 及本节边界实施；后续实际窗口截图/键鼠旅程、真实 owned 适配器与双配置
+回归分别计入 VIS/FLOW/DATA/ENG，收尾核查测试进程与临时数据。未实测前不称 UI、重建
+或完整 parity 完成，也不把图像批准当作部署授权。
+
+R24 统一共享 Windows 元数据读取，R25 增加 [只读元数据复核与 CLI](<architecture.md#2026-11-02--只读元数据复核与-startup-inspectr25>)，
+R26 增加 [处置编码与账本守卫](<architecture.md#2026-11-02--共享处置编码与有界账本守卫r26>)，
+R29 增加 [显式输入的词法预览](<architecture.md#2026-11-02--显式重建输入的只读预览r29>)，
+R30 增加 [后端归档槽证据](<architecture.md#2026-11-02--原-guid-归档槽的只读原生证据r30>)，
+R31 补齐 [固定来源与归档双槽观察](<architecture.md#2026-11-02--固定来源与归档的双槽只读证据r31>)，
+R32 接入 [Agent 版本化只读协调](<architecture.md#2026-11-02--agent-版本化原生观察与完整-single-flightr32>)，R33 补显式 native CLI；
+R34 落实 [r2 只读/配置纳管 GUI 子集](<architecture.md#2026-11-02--r2-启动项-gui-的只读与配置纳管子集r34>)，
+R35 沿既有更多/按需诊断补 [原纳管 ID 的只读回执查询](<architecture.md#2026-11-02--原纳管操作的按需只读回执r35>)，
+不增加重试、解锁或原生授权；查询沿当前窗口锁存的原 ID，读结果不应用到业务状态。
+[VIS/FLOW/DATA/ENG 分项证据](<../verification.md>) 沿原账本记录，未覆盖项不推定通过。
+处置形状不等于可信原记录，完整原生准备/结果、真实重建、历史界面和跨重启未知恢复仍未完成；
+完整 r2 与整体 parity 尚未验收，原生新写 CLI 保持关闭。
+
+## 2026-11-03 — 日志 G2 候选 r1（R58）
+
+**未批准，不作为实现基线。** 继续已批 G1-r1 的日志工作流程，主屏 r4 与启动项 r2 均不改。
+[事实/范围与 LG01–LG07](<architecture.md#2026-11-03--gui-日志旅程接续与-g2-候选r58>)
+继续归原架构入口；仅本日志新布局处于 G2，不借候选图授权实施。
+
+- [真实生成 r1](<visual/sa-20261103/logs-g2-candidate-r1.png>)：1672×941 PNG，1,493,841 bytes，
+  SHA256 `A89C46756222BF708E3075437553DFC387CF696B84B2F0B6ACF2414CE74436BB`。
+- [完整原始 prompt 与合成样例 LG-F1](<visual/sa-20261103/logs-g2-r1.prompt.md>)：只传功能和
+  整体风格文字，未附任何截图或真实日志；默认订阅图像模型，具体 ID 未回报，其他参数
+  默认。原文件保留，副本 hash 相同，已确认真实 PNG、verify 与完整解码，已实际看像素。
+- 覆盖选中媒体库、暂停追踪、业务日志 ERROR 事件及多行原文。不是运行 UI，未覆盖
+  点击行为、持久化、错误状态、DPI、真实来源或真实文件权限。
+
+### 像素审阅：r1 不宜直接实施
+
+| 实际可见证据 | 判断/下一修订要求 |
+| --- | --- |
+| 来源显示“全部来源”，表格各行又重复同一“媒体库业务日志”。 | 当前后端单来源 query；不能画成多来源聚合后再假接线。只明确选中一个来源，删除同值重复列。 |
+| 新建“服务监控/日志”大导航，与宿主服务上下文重复。 | 日志是按需工具，不增一套一级导航或另创主屏；保留可返回与服务身份。下一张自主布局须遵守此功能边界。 |
+| 已选行、详情字段和原文多次重复时间、来源、消息。 | 只保留用户阅读所需身份和原文，清除重复字段，不用表格/卡片/说明墙替代精简。 |
+| 生成图漏了合成样例标记，起始时间只给月日。 | 本图所有数值/日志均为合成。后续候选应有一次示例说明；实装时间选择明确日期/时区，不硬编码本样例。 |
+| 部分文字偏重、工作面有生成纹理。 | 沿 r4 共享常规字体、直角细线/无阴影，不把纹理复制为代码装饰层。 |
+
+不在文字补充中悄悄移除整套关键布局后宣称原图已匹配。建议用户授权修订生成 r2，再对
+指定图片和补充规则集中 G2/执行确认。未自动追加变体，未修改 GUI/SDK/Agent 源码。
+
+未来补充继承 r4 的 1120×700 / 1320×820 / 1620×651 桌面矩阵及 125%/150% DPI、
+14–16 DIP 中文/至少 12 DIP 辅助文案、真矢量细线图标、32 DIP 以上命中区、共享
+方形滚动条、内部白条/下划线焦点和 reduced-motion。加载/空/不可用/截断沿同一框架
+显示，不能从 candidate 推断业务成功。G3 必须实际窗口截图与键鼠旅程，不以图片或测试
+通过代替；没有新 UI 实装时本轮不记 VIS/FLOW 通过。
+
+## 2026-11-03 — 日志 G2 候选 r2（R58）
+
+**G2-logs-r2 与下述补充契约/最小实施范围已批准。** 用户先在 r1 问答选择“重画 r2（推荐）”，
+其后在看到 r2、精确补充和范围后明确选择“批准 r2 并实施（推荐）”。后一个独立确认才是
+代码许可，不从生成授权推导。主屏 r4、启动项 r2 及 G1-r1 日志逻辑继续有效。
+
+- [r2 原图](<visual/sa-20261103/logs-g2-candidate-r2.png>)：1536×1024 PNG，1,385,184 bytes，
+  SHA256 `E8251E24140EC653B46E7E861FBB46F6F2FEE45495272A40605D63D109850AB5`。
+- [完整原始输入/授权与样例](<visual/sa-20261103/logs-g2-r2.prompt.md>)：只用功能与整体风格
+  文字，无参考图片或私人内容；默认模型/参数，具体模型 ID 未回报。原件保留，PNG verify、
+  完整解码、项目副本 hash 一致；已实际看像素。
+- 相比 r1 已去新增一级侧栏与“全部来源”，同源重复列消失，选择事件就地展开多行原文。
+  r2 是日志独立按需工具骨架，不替换宿主主屏，不增加其他导航体系。
+
+### 已批准的 r2 精确补充
+
+1. 图中没有“示例数据”字样；**所有内容均为合成 LG-F1**，本图绝非运行截图，四条事件
+   不进入生产默认数据。source 的实际文字使用来源 ID 与控制/业务类型，可保留服务名；
+   不因样例取一个好看名字而猜来源身份。WSL/Windows Event 未支持明确不可用。
+2. 去除标题“桌面日志查看工具”和工具行重复的服务/来源文字，只保留必要产品身份、
+   选择器当前值与“追踪已暂停/正在追踪”。返回/刷新/追踪/当前页导出用现有细线矢量
+   图标，配 Tooltip/AutomationProperties.Name；原文保留完整真实数据，不重复堆字段。
+3. 底部生成的页码、后退页和末页跳转**不是现有契约**，不实现假的总页数/任意跳页。
+   使用“最近”/“从头”两个明确查询起点、仅在 HasMore 时可用的“下一页”与页大小
+   50/100/200；任一条件变更重置游标。导出 Tooltip 明确“导出当前页”，只创建新文件，
+   取消无写入，文件已存在拒覆盖；不称全量导出。
+4. 同一骨架覆盖 loading/empty/unavailable/denied/cancel/timeout/partial/rotation-lost：
+   不可用不冒充空，保留失败原因、截断/损失编码/排除未知时间计数；详情按需展开，长值
+   内部滚动/折行，不缩字。没有来源时可刷新但不伪造来源；后台不连接时只提示，不自动启动。
+5. 首次打开读取有界最近页但不自动追踪；追踪通过短 RPC 增量读取、单次在途，暂停后
+   保留已显示页和游标，关闭/换源取消旧轮询。仅显示当前有界页，不无限积累事件/计时器；
+   轮转丢失停下并明确要求重新选择读取起点，不静默补值/从头。来源与过滤不得串页。
+6. 继承 r4 的直角/灰阶/内部焦点/矢量图标/字体与桌面矩阵；实际布局允许过滤工具随宽度
+   自然换行，原文内部滚动，不放大全图/缩字体。生成噪点、仿粗字体不是新 token。
+   Escape/返回恢复触发项与原服务选择/筛选/滚动；不停止 Agent 或服务。无必需动效，
+   如使用淡入淡出须配套可取消退出及 reduced-motion。无手机/平板扩项。
+
+### 已批准的最小实施范围
+
+- 新增 App 的 LogViewerWindow/LogViewerViewModel，复用 LineIcon、WindowTheme 和
+  共享 LogQuery/LogPage。MainWindow 日志按钮与独立菜单接新浏览器，保留原状态详情、
+  旧异常聚合与打开日志目录能力；不重画主屏或改 Native 启动项门禁。
+- 仅复用现有 log-sources/logs RPC；必要的纯 NDJSON 序列化复用保持旧 CLI 导出格式
+  兼容，不新增 provider/路径输入/提权/配置写入。默认只展示声明来源，不修改用户 settings。
+- 新增 owned pipe/文件的日志 GUI model、WpfWindowCollection 非并行窗口测试，并
+  回归旧 CLI 日志。真实窗口在支持桌面尺寸/DPI 下查看截图、执行服务→日志→返回、
+  过滤/展开/翻页/跟随暂停/错误/导出取消及成功旅程；VIS/FLOW/DATA/ENG 分开入原账本。
+- 保留已有工作，回收本片创建的进程/计时器/临时 root。**批准图片不代表本片完成**，
+  未完成任一必需运行截图/交互/数据路径不称日志 UI 已验收。
+
+### 新版 KFL 规则复核（R58，共享状态组件 G2）
+
+用户要求先更新 KFL，再按新说明继续 GUI；已同步并重载
+[KFL 4e87937](https://github.com/AngleNaris/KFL/commit/4e87937108a09eeab98e120ec1e773d7ec5656e4)。
+发现旧内部焦点线/选中白条与新默认不符后，用户明确选择 **“焦点和选中都按新默认”**。
+此选择取代旧白条/下划线约定；不作为旧式样的例外。G1、日志 r2 布局/数据/范围继续有效，
+只重开共享组件状态样式 G2，不从零重画页面。用户随后明确选择
+**“批准 r2 与补充并实施（推荐）”**，批准 G2-state-r2 及以下精确补充并授权范围内实施。
+实现/验证进行中，批准不代表 G3 通过。
+
+#### 状态组件候选与实际审阅
+
+- **G2-state-r1：不采用。** [首张原图](<visual/sa-20261103/states-g2-candidate-r1.png>)
+  出现蓝色焦点、圆角和红色焦点歧义，与灰阶/直角/异常语义冲突，不作为实施基线。
+- **G2-state-r2：已批准。** [一次定向修正原图](<visual/sa-20261103/states-g2-candidate-r2.png>)
+  为 **1536×1024 PNG / 1,291,190 bytes**，SHA256
+  `53804D3FA32F0788F5F9213326C264B62BEBD899DCD395C9C520D002E7A780C7`。
+  已查看像素；灰阶、方形、无状态条及相同样例状态对照可见。它是组件效果图，不是运行
+  截图或新页面布局，不证明键鼠、DPI、动画与真实对比度。
+- [两次完整输入](<visual/sa-20261103/states-g2.prompts.md>)均只有功能与整体风格文字，无
+  参考图片、私人内容或按钮位置/分区布局指令；默认模型/参数，实际引擎 ID 未回报。
+  [资产与颜色计算](<visual/sa-20261103/states-g2-assets.json>)记录原件/副本 hash 相同、PNG
+  verify/完整解码与真实尺寸。两张原件保留，未覆盖旧日志/主屏批准图。
+
+#### G2-state-r2 精确补充（与图一并已批准）
+
+1. **只改状态。** 图中新增的刷新按钮外框、日历入口、日志容器框、演示状态标签和滚动条
+   箭头不是新产品需求；不复制它们。保留各控件现有几何、1 DIP 永久边框/分隔线、字体、
+   图标族、Tooltip/可访问名称、命中区及原页面布局。图中焦点日志标题加粗也不落地；
+   聚焦不得改字重、尺寸、间距或图标形状。滚动条沿既有共享方形合同。
+2. **INT-3/3a：删除标记，不删除反馈。** 删除 KeyboardMarker、SelectionMarker、
+   AccentFocusVisualStyle 的 2 DIP 焦点矩形、DataGrid/Metric/Rail/Tab 的状态条，关闭
+   MaterialDesign 额外下划线。已有可见控件边框只变颜色、不增宽；无边框的按钮仅变图标/
+   标签色。保留语义颜色的内容容器使用其既有可见标题提示焦点，不为此新添可聚焦父层。
+   列表永久行分隔与面板结构线不随状态变化；没有 outline/ring/阴影等替身。
+3. **精确颜色角色，不重映射全部正文。** 用现有灰阶做共享交互 token：无边框操作的默认
+   图标/交互名称 `#F4F4F5`，焦点 `#8B8B94`；选中底色保留 `#131315`，交互名称/图标为
+   `#8B8B94`，选中并聚焦为 `#F4F4F5`。选中由底色与文字色表达，不新增条；Tag/IsSelected
+   活动按钮也复用此角色，不沿用旧整块白底反色。非选择性的白底 primary action 仍保留其
+   优先级与现有 1 DIP 边框，只把焦点边框色改为新灰阶 token `#6B6B75`。输入框原有
+   边框 `#303036` → 焦点 `#F4F4F5`，文字不因聚焦变色。普通正文、次级元数据和红色
+   异常内容不跟随这些交互 token 改语义。图像不能精确承诺的灰阶以本表和运行复核为准。
+   不把 `TextSecondary #A1A1AA` 直接提亮充当合格焦点：即到纯白也仅 **2.563:1**；
+   只调整交互角色，不把全局次级正文色一并改掉。
+4. **COL-3 / INT-3 的静态计算边界。** 拟用交互色对为 **3.072:1**；焦点灰对既有最亮
+   hover 面 `#1B1B20` 为 **5.079:1**、对选中面为 **5.495:1**；输入既有/焦点边框色对
+   为 **11.928:1**；白底 action 原有/焦点边框色对为 **4.153:1**，焦点边框对浅色按钮面
+   **4.794:1**、对周围 hover 面 **3.255:1**。这些是实算 sRGB token，不是运行 UI 通过。
+   实现须核对实际 brush、
+   opacity、模板覆盖与焦点/选中/hover 并发；有明亮反色或不兼容消费者时停在该组件，
+   不能用不合格颜色、透明或删除焦点硬套。错误色不作为焦点色，完整应用静态配色另需复核。
+5. **MOT / INT-3b：** 入焦点与出焦点用对称 **120ms** 颜色过渡，可从当前状态打断反转；
+   无位移、缩放、布局动画或延迟可操作性。Windows reduced-motion 下立即完成并清理。
+6. **共享消费者边界。** 先 tokens → Dashboard 按钮/列表 → TextBox/ComboBox/通用 Button/
+   CheckBox/ComboBoxItem/DataGridRow → StartupRow 与 Monitoring 的 Metric/Rail/Tab
+   同构状态；回归主屏、日志、启动项及实际使用这些共享组件的表单/诊断窗口，不重排内容。
+   旧测试中的 2 DIP Rectangle、可见 SelectionMarker、禁止改变 BorderBrush 等断言按
+   新契约改为“仅颜色/几何不变/焦点仍可见”的真实断言，不能删断言冒充通过。
+7. **VER：** 每片记录 ALN/REU/COL/INT/MOT 与适用 SCR/ICO/STA 条目的已验/未验；先
+   检查静态/聚焦/选中/并发/禁用及 reduced-motion，再检查 1120×700、1320×820、
+   1620×651 和 125%/150% DPI。必需实际截图及鼠标/Tab/Shift+Tab/列表键盘操作、
+   来源过滤/跟随/导出/返回焦点旅程；沿[原验收账本](<../verification.md>)记录，未验不通过。
+   页面 G1、单来源/游标语义、服务权限及既有配置均不在此次变更范围。
+
+#### 已批状态范围的实施切片与规则归属
+
+此处只补切片索引；通过、失败与未验归[原验收账本](<../verification.md>)，不另建 KFL 账本。
+
+| 切片 | 改动边界 | 必须复核的规则 |
+| --- | --- | --- |
+| S0 颜色基础 | 交互 token、独占 brush、120ms 可逆颜色及 reduced-motion/卸载 | REU-1/4/5/6/8/9；COL-1–4；MOT-1–5；INT-2/3/3a |
+| S1 Dashboard | 图标按钮、活动 Tag、序列行；去旧标记，不改几何/业务语义色 | ALN-1/4–6/8/12/13/16/20；REU-3/4/6–9；MIN-1/3/5/6；ICO-1/2；INT-1–3a/5/7 |
+| S2 共享控件 | TextBox/ComboBox 原 1 DIP 边框、各按钮变体、CheckBox/下拉项/DataGrid；原文沿已有摘要反馈焦点 | S1 同构规则，另 REU-2/5；RAD-2/4/5；SCR-1–4；INT-4/6/8–11；MOT-1–5 |
+| S3 特定消费者 | StartupRow、Metric/Rail/Tab、splitter；不增加可聚焦父层、不取消键盘能力 | 同构 ALN/REU/COL/ICO/INT/MOT，尤其 INT-3 第 3 项的既有可见标题反馈 |
+| S4 关联验收 | 主屏、日志、启动项、共享表单/诊断的真实旅程及桌面/DPI | VER-1–6；CON-1–5；STA-1–4；TYP-1–4；前述适用条目逐项复验 |
+
+原页面/区域框架不重排：其余 ALN 条目仍由 S4 检查未被状态改动破坏。MIN-2/4 不新增
+装饰文案/面板，既有文字控件不借本次状态变更擅自重排或图标化；RAD-1/3 沿已批零半径。
+INT-11 的移动触屏矩阵按桌面平台 N/A，但不缩减既有命中区，错误/状态可理解性仍适用。
+浏览器导航 API N/A；桌面返回/焦点连续性仍按 INT-7/9 实测。
+
+**当前边界：** S0/S1 有工程与局部原生证据。S2 原生曾发现 TextBox 模板瞬时写入焦点终点，
+已补 routed Got/LostKeyboardFocus 后置重申及卸载解绑。复核又修复 ComboBox 原生校验色
+继承、静态/可聚焦表头的角色边界；R58 双配置 Core 各 530、共享 GUI 各 40 项通过。该轮实际复验
+先遇前台转移、系统前台锁与截图句柄无效。r4 已补真实 inactive PrintWindow 图及程序聚焦
+#303036→中间色→#F4F4F5 的属性色阶、动画结束和固定几何；不是聚焦像素或物理 Tab 证据，
+晚采样也不证明精确 120ms。物理 Tab 仍被系统拒绝，VIS/FLOW 未齐，不以 exit 0 代替。
+S3 已完成本片源码迁移与双配置工程回归；其原生/DPI 验收仍不豁免。旧 popup 圆角保持
+RAD-4/5 待核，不宣布整套 G3 通过。
+
+**S3 实装边界（R59）：** [Startup](<../src/SystemAutorun.App/Dialogs/StartupManagerWindow.xaml>)
+的名称/图标复用行交互色，删除选中/键盘标记；状态和来源元数据保留原色。搜索原有外层
+边框跟随输入 brush，内层仍为零边宽，不叠新框。[独立 Caption brush](<../src/SystemAutorun.App/Services/ColorStateAssist.cs#L27-L33>)
+仅供既有“元数据复核”标题反馈正文焦点，不改正文颜色或增加父级 Tab stop。
+[Monitoring](<../src/SystemAutorun.App/Dialogs/MonitoringWindow.xaml>) 的主机 Tab 去状态条，
+仅名称跟随交互色，状态点/地址/平台不随之变色；6 DIP splitter 保留原生键盘调整和可访问名，
+以既有“事件详情”标题反馈自身焦点，正文仍沿现有 1 DIP 输入边框色反馈。Rail/Metric 当前
+没有页面消费者；只迁移原配方，未恢复旧导航。其布尔 Tag 底色复用 Dashboard 的强类型
+Boolean trigger，选中底色优先于 hover，不以字符串 True 误匹配布尔绑定。
+
+[本片分项证据](<../verification.md#2026-11-03--共享状态-s3-实装与分项复验r59g3-未完成>)记录
+13 源冻结、Debug/Release 各 530 Core / 45 筛选 GUI、100% DPI 三档 WPF 渲染及残留核查。
+已查看截图不等于原生键鼠；Tab/Shift+Tab、焦点返回/反转、splitter 键盘调整、125%/150% DPI
+仍未验。旧 Monitoring 的概览连接信息末行与表格时间末尾存在可见裁切，未借状态迁移重排，
+不将其 ALN/TYP 或整页 VIS 标为通过。
+
+## 2026-11-04 — self 登录启动 G2 候选 r1（R75）
+
+**G1-self-gui-r1、G2-self-gui-r1 与以下精确补充/最小实施范围均已批准，并已明确授权实施。** 用户先对两处入口统一、逐次准备和确认、原 ID 跨重启保留与未知只读封锁，明确选择“批准流程，继续 G2（推荐）”；在看到真实r1、像素审阅和补充后，再选择“批准 r1、补充并实施（推荐）”。后一次独立确认才授予代码实施许可，产品G3尚未开始。详细范围和验收 ID 归[原验收入口](<../verification.md#2026-11-04--self-gui-g1-批准与-g2-候选r75>)；主屏 r4、启动项 r2、日志 r2、共享状态 r2 不重开。
+
+### 产物与实际像素审阅
+
+- [真实生成 r1](<visual/sa-20261104/self-gui-g2-candidate-r1.png>)为 **1536×1024 PNG / 1,325,560 bytes**，SHA256 `A052962E86229EC503646D312351E252880C5A7D1DBD3B74173264318CFD2819`。原件保留，项目副本逐字节相同，PNG verify、完整解码已过，已查看实际像素。
+- [完整原始 prompt / SG-F1](<visual/sa-20261104/self-gui-g2-r1.prompt.md>)只传功能、合成内容和整体风格；没有传入 r4/state-r2 或运行截图，没有位置、相邻关系、分区或固定版式指令。工具为 codex_image_generate，模型/参数沿用户默认，实际引擎未回报；只生成一次，没有追加变体。格式和文件身份见[校验记录](<visual/sa-20261104/self-gui-g2-r1.image.json>)。
+- 图中可见独立的确认与未知状态，同一灰阶窗口语言、直角细分隔、明确动作、完整原 ID 和按需校验详情。未知状态没有重新启停、重试或强制解锁；其问号/信息符号是语义图标，不是被禁止的圆形图表。
+- 图中仍有轻微生成纹理/按钮渐变、偏重标题、内部术语“必要身份”和重复引导句。“示例数据”在两个独立状态各出现一次。下面的精确补充消除这些生成噪声，不悄悄更换整个骨架，也不把这张图当作运行截图、原生焦点或精确对比度证明。
+
+### 已与 r1 一并批准的精确补充
+
+1. **只替换 self 两处入口及其按需工具。** 统一文案“登录启动…”，点击仅打开同一工具，不再用复选框勾选代表已经写入。既有服务主屏、监控布局、其他设置、Boot 入口和业务均不重排；同 root 共享待查状态，不新增主导航或常驻面板。
+2. **确认页。** 标题为“确认启用登录启动”或“确认停用登录启动”；省略图中重复的“您已选择…”教程句。“必要身份”改为“作用范围”，仅展示当前 Windows 主体、当前管理根和“当前服务端包的固定管理器 · 后台”，不暗示调用方 exe 就是服务端目标。明确“仅修改登录登记，不立即启动程序”；动作是“取消”及“确认启用/确认停用”。长路径自然换行/按需展开，不能藏掉操作方向。技术详情说明清单校验不是发布者认证，摘要/指纹不是授权；不将 raw SID/hash 常驻为信息墙。
+3. **同构状态覆盖。** 初始状态沿同一壳显示“登记尚未核对”，提供“启用/停用”的意向选择，选择只开始准备。准备中显示真实忙碌，写动作不可用，可取消/关闭且不提交。准备完成才显示真实前态与变更摘要（包括无需原生变更）；取消不提交。提交中展示保留的原 ID，不承诺关闭能撤销。收到正常回执后独立复核登记，读取失败显示“登记未核对”，不把历史 Data 或期望值当作当前状态，也不称已验证登录启动。
+4. **未知页。** 使用图中同构内容，精确提示“结果未知”“保留原操作，不要重新提交”，操作只有“查询结果”“复制 ID”“关闭”。查询是原 ID 的只读回执观察，不发送、不刷新计划、不自动解锁；未找到/Running/Unknown/结果未保留/查询失败各自如实显示。不从当前值匹配、Completed 一词或历史 opaque Data 推导可重新提交；不提供重试、强制清除、换 ID、回滚或 UAC。关闭只关工具，原 pending 跨重启保留。无法读/写/清理待查记录时仅封锁 self 功能，不捏造原 ID、当前登记或成功；没有有效 ID 时查询/复制不可用。
+5. **几何与视觉。** 两状态是设计样张，不将 1536×1024 当作单个对话框尺寸或像素一一合同。按现有桌面 owner 范围 1120×700 / 1320×820 / 1620×651、100%/125%/150% DPI 复核；工具建议常用约720 DIP宽、内容驱动高度，最小约640 DIP，受 owner 工作区限制。窗口仅保留关闭，不实现图片中的最小化/最大化。复用既有32 DIP以上命中区、14–16 DIP中文主体/至少12 DIP辅助文字、常规字重、等宽ID、4 DIP间距尺度与方形滚动条；低于容纳阈值时作用范围换行重排，不缩小文字或裁关键动作，不追加移动布局。
+6. **共享组件而非新主题。** 灰阶/直角/细线图标沿 r4 及 G2-state-r2，采用已有纯色 brush，去生成纹理、渐变、阴影与重字。确认是明确的 primary；未知页“查询结果”为主要只读动作，复制/关闭为次级。保留现有1 DIP结构边框，焦点仅使用已批纯颜色对及对称120ms可逆过渡/reduced-motion；不新增 outline、ring、下划线或状态条。普通正文与未知提示不借焦点变色，未知不伪装为成功或实际故障。
+7. **键盘与生命周期。** 按阅读顺序 Tab/Shift+Tab；Escape 在提交前取消，在提交后只关闭并保留跟踪，返回原入口焦点。确认是明确用户操作，Core/文件不能自行将 Confirmed=false 升为授权；双击/重复打开不产生第二笔写入。查询迟到、窗口关闭和 owner销毁不得更新已销毁UI或释放未结束 workflow 资源；无意向选择时不设置隐式默认提交。图标有准确 Tooltip/AutomationProperties.Name，复制通过显式用户操作并反馈结果。
+8. **已授权的最小实施范围。** 先共用 Core提交/ACK读取及严格 pending-ID存取契约，再做共享GUI协调/按需窗口，替换App/主菜单/监控的旧 direct写与启动bool读取。pending仅本root的恢复线索，不是Journal所有者或原生权限；提交前原子持久化，不能存失败就照发，不能据其内容自动重发。共享receipt v1与Windows准入/原生机制不扩权，CLI外部语法兼容。最终通过私有GUID实际Pipe/Console、真实WPF像素/键鼠与双配置回归分别验收，严禁真实Run/Boot或发布宿主写测。
+
+### 本片 KFL 规则归属
+
+| 本片角色 | 沿用/需验证的规则与边界 |
+| --- | --- |
+| 窗口/内容骨架 | ALN-1–20、REU-1–9；继承当前frame/token，按SG-F1确认/未知/长路径和内容阈值验布局，未实装前不记通过。 |
+| 操作与内容 | MIN-1–6、CON-1–5、STA-1–4；必要身份/前态/原ID可见，诊断按需，不以空白/装饰徽标充极简。 |
+| 共享控件 | RAD-1–5、COL-1–4、ICO-1/2、TYP-1–4、SCR-1–4、MOT-1–5；零半径、既有图标族/可访问名、纯颜色焦点与reduced-motion，不另建组件审计框架。 |
+| 交互/验证 | INT-1–11、VER-1–6；桌面pointer/keyboard、取消/关闭/错误/未知/迟到结果/跨重启跟踪，像素与业务分别证实。移动触屏和浏览器history API N/A，其余桌面焦点连续性仍须验。 |
+
+上述均是待实施检查，不是KFL或G3已通过。用户已在同一次G2问答明确批准r1、精确补充及最小实施范围并授权实施；下一片按共享契约→协调/窗口→入口替换→分项真实验收继续，不再重复申请同一G1/G2范围。
+
+**R76 实施接续**：共享 Core 提交/ACK 读取及 CLI reader 复用已落地，双配置后台回归和清理证据见[原验收入口](<../verification.md#2026-11-04--self-共享提交与-ack-契约r76gui-仍待接线>)。本片不改界面；严格 pending 持久化、共享协调/窗口、两处入口替换和新 GUI 的 VIS/FLOW 仍待实现与实测，不把后台通过改写为本 G2 页面或产品 G3 已完成。
+
+**R77 实施接续**：严格 pending 存取、fresh reservation 的单次条件清理及独立进程崩溃恢复已实测，见[同一验收入口](<../verification.md#2026-11-04--self-原-id-持久恢复线索r77gui-尚未接入>)。它不是确认或清理结果证明，恢复读不产生清锁能力；尚未接生产 GUI/CLI，也未实现协调器的 known/unknown 判定，下一片继续协调/窗口与原入口替换，不能把文件持久化回归视为新 GUI 或整体 G3 通过。
+
+**R78 实施接续**：同root工作流已连接typed submit与pending，明确确认后持久化再单次发送，区分known/unknown/存储封锁，原ID观察不清锁且不把历史Data当登记。新增Core33与私有Agent/Journal7复验通过，双配置各1176/1176、测试残留终检0，见[同一验收入口](<../verification.md#2026-11-04--self-同-root-工作流协调r78gui-尚未接入>)。暂无生产GUI调用，下一片落实按需窗口、现场登记另读、原direct入口与启动bool替换及原生UI生命周期；既有CLI未消费GUI pending，不能将本片称为通用跨客户端闸或整体G3完成。
+
+**R79 实施接续**：按需工具、两处“登录启动…”入口及独立登记读取已经接线；旧App启动bool读取与本地direct写入已移除，关闭只原子丢弃自己同一未确认计划，不取消已确认workflow。Core35及合成Pipe/WPF15复验通过，已查看100% DPI三桌面owner像素，并实际执行准备、空格确认、未知原ID查询与关闭；现场RPC明确单次set，未知pending前后不变。最后原生焦点复验被Windows前台锁拒绝且未发送输入，125%/150% DPI、完整Tab/复制、实际两入口与跨owner返回焦点仍未验，G3仍分项开放。工程矩阵与清理的最终结果统一更新在[同一验收入口](<../verification.md#2026-11-04--self-按需登录启动工具r79g3-仍分项待验>)；下一片优先补这些UI缺口并核对监控模态页与已有工具的交互，再闭合CLI对GUI pending的共用保护。不把合成GUI夹具称为生产Journal/native旅程，不重复申请已批范围。
+
+**R80 小修复接续**：实际 Main→Monitoring 模态入口已复现会把先开的 modeless self 工具一并禁用；现先暂藏同一视图，监控入口重开时重挂 owner/尺寸通知及最新返回入口，否则正常返回或构建失败后无激活恢复。未改变已批页面、确认/未知状态或 Core 提交契约，也未加入 native 强启用或前台绕过。六状态组合的旧红例和修复后回归、实际两处 UIA 语义入口与同 HWND 像素分别见[同一验收入口](<../verification.md#2026-11-04--self-跨-owner-模态修复r80g3-仍未完成>)；UIA 不是物理输入，Windows foreground lock 下的原生焦点、完整键盘/复制/标题手势和125%/150% DPI仍未验，G3不关闭。最终双配置与清理结果只在该入口维护；下一片可先闭合 CLI 对 GUI pending 的共用保护，不重复强抢前台或重开本片 G1/G2。
+
+## 2026-11-04 — 恢复状态工具 G2 候选 r1（R87）
+
+**G1-recovery-gui-r1、G2-recovery-gui-r1、以下精确补充与最小实施范围均已批准，用户已明确授权按顺序实施。** 用户在第二次独立问答选择“批准 r1、补充并实施（Recommended）”；该确认才授予实施许可，不从此前生成许可推断。当前代码实现与G3尚未开始。
+用户在本地问答选择“批准流程，继续 G2”，批准[原架构入口的最小恢复旅程](<architecture.md#2026-11-04--恢复状态-gui-g1-r1r87交互已批准>)。
+主屏 r4、启动项 r2、日志 r2、共享状态 r2 和 self 工具原合同继续有效，不重新设计它们。
+
+### 产物与像素审阅
+
+- [真实生成 r1](<visual/sa-20261104/recovery-gui-g2-r1.png>)是 **1536×1024 PNG / 1,373,654 bytes**，
+  SHA256 `0b67113daf7810679259ac82f390a1a62a8ad4eea1aa0856604f5cedd2a703f5`。原图保留，
+  项目副本字节相同，已完整解码并实际查看像素；格式、尺寸与身份见[校验记录](<visual/sa-20261104/recovery-gui-g2-r1.image.json>)。
+- [原始 prompt / RG-F1](<visual/sa-20261104/recovery-gui-g2-r1.prompt.md>)仅传功能、合成服务/路径/时间/ID与整体风格。
+  Lead在本地查看主屏r4/state-r2，但没有把它们或任何运行截图传给工具，没有位置、相邻关系、
+  分区或预定版式指令。使用 codex_image_generate，未覆盖用户模型，size/quality/background auto，
+  实际引擎未回报；生成一次，没有追加变体或编辑。
+- 图以三个状态样张展现已暂停、确认解除与结果未确认，采用同一灰阶、细结构线与动作语言。
+  未知态保留完整示例原ID，没有再次解除/重试/清除/换ID动作，不冒充已解除或已运行。
+- **需补足而非直接照抄：** 确认与未知态漏了目标服务/管理根；暂停态“解除”旁的Play符号易
+  误示立即启动；齿轮应用标志、“Windows 桌面管理工具”扩展标题、未知正文重复“结果未确认”
+  及偏重标题/轻微生成纹理不是产品必需内容。保留图的总体骨架，以下精确补充明确这些修正。
+- 视觉角色亦看图提出了删除重复文案的有效建议；其“圆问号/时钟违反禁圆图表”和“确认动作居中”
+  不作为事实采纳。语义图标不是圆环仪表/交互外框；图中各状态动作均靠同一右侧区域，实装仍需
+  复用相同footer锚线，但不捏造生成图存在已证明的基线缺陷。图片不能证明真实DIP、精确对比度或FLOW。
+
+### 已与 r1 一并批准的精确补充
+
+1. **一个按需工具，非三窗常驻。** 图中三个框表示同一工具的状态，不是同时打开的窗口。
+   当前服务的更多/同业务上下文入口复用它，固定root/服务名称；不改主屏布局、全局恢复开关、
+   原TaskDetail/日志或self工具。现有Stop写暂停的后端语义保持，不增加独立pause或初始化/修复。
+2. **身份与准确文案。** 工具壳保留现有应用标识，不采用生成齿轮或“Windows 桌面管理工具”
+   装饰副题；每态只保留一个功能标题。暂停页标题“自动恢复状态”，值“自动恢复已暂停”，
+   时间只来自PausedAt；缺少时间则如实不详，不编暂停原因。确认页标题“确认解除恢复暂停”，
+   未知页标题“结果未确认”。**服务名与管理根在三态均可辨识，不能仅藏在tooltip**；当前Windows
+   主体/技术修订按既有作用域合同呈现，长值可换行/展开，不重复身份墙。
+3. **确认与动作含义。** 保留“仅解除恢复暂停，不直接启动服务”“不修改全局自动恢复开关，
+   后台仍按原策略判断是否恢复”。确认前可取消；主动作“确认解除暂停”，非“启动/恢复运行”。
+   去掉解除动作旁Play图标；现有图标族没有不歧义的该动作图标时，解除/确认保留明确方向文字，
+   查询结果亦复用self工具的明确主动作语言，不为MIN-5强行用启动图标代替。刷新/复制/关闭复用
+   已有细线图标及ToolTip/AutomationProperties.Name，只有必要的主任务文字例外，不扩全局规则。
+4. **未知与同构状态。** 未知正文不重复标题，使用“保留原操作，不要重新提交”，显示完整原ID，
+   仅“查询结果”“复制ID”“关闭”。无有效ID时查询/复制禁用；读取/持久化失败封锁此工具，不猜ID。
+   加载不显示默认正常；未初始化、协议/存储坏档、离线/拒绝均保留同壳说明和重新读取入口，不提供
+   解除/修复/提权。已知未暂停无解除动作，不能把它当运行/健康证据。提交中忙碌且不可连点；
+   已确认后关闭不承诺撤回，原ID跨重开/应用重启保留。新Stop/冲突不得被旧ACK或迟到读取覆盖。
+5. **几何、布局与桌面范围。** 1536×1024是三个状态合成画布，不是单窗DIP尺寸，不整体缩图压字体。
+   保留图中简洁身份/状态层级、同壳footer；以内容驱动高度，工具建议最小约680 DIP、常用约820 DIP宽，
+   不超过owner工作区。较窄可将身份与状态自然换行重排，内容在独立滚动区增长，关键动作始终可达。
+   不为适配缩小字号。按owner 1120×700/1320×820/1620×651及100%/125%/150% DPI验证，
+   不增加手机/平板矩阵。窗口仅关闭，不实现生成图最小化；同一footer共享右锚线/间距而非逐态硬调。
+6. **组件合同。** 采用r4/state-r2已有纯色brush、直角、1 DIP永久结构线、4 DIP间距尺度和方形滚动条，
+   中文主要14–16 DIP（主要阅读16）、辅助至少12 DIP、常规字重，ID/时间等宽。去生成颗粒、渐变、
+   阴影和装饰齿轮，不加卡片墙、统计条或圆环图。确认是主操作，未知时查询是主操作；普通状态不借
+   红色暗示故障。不新增共享token主题；现有纯颜色焦点对及对称120ms/reduced-motion保持，禁止
+   outline/ring/新边框/下划线/状态条，永久结构边框不随状态增宽。静态提示不伪装可交互焦点。
+7. **键盘、返回与生命周期。** 同一模态工具内变换状态，不复制self跨owner的modeless问题。
+   Tab顺序随阅读与动作顺序；初始读取态优先安全读取动作、确认态优先取消，不设隐式默认提交；
+   未知态可先到查询。Escape在确认前返回且不提交、确认后只关闭保留未决；返回原入口与服务选择/
+   筛选/滚动/逻辑焦点。关闭/owner销毁的迟到结果不得更新已销毁UI或冒充回收完工作流资源，
+   Closed仍有兜底。真实前台/键盘证据与UIA/离屏WPF分开；工具不可用时不强抢用户前台。
+8. **已授权最小实施顺序。** 先实现Core类型化recovery读取/提交和与原ID绑定的严格pending/回执
+   核验协调，再接GUI VM/按需窗口与更多入口；不改RecoveryControlStore/Agent恢复策略或新增RPC。
+   复用现有AgentOperationClient及同类pending机制，不把self专用凭据/ACK规则原样套到恢复数据。
+   保留既有CLI recovery state/resume/operation show语法及JSON，GUI/CLI仍共享后端名称级恢复意图；
+   不把UI缓存当状态源。随后按RG01–06验真实隔离Pipe/Console、持久化/跨端/丢回执、WPF像素/键鼠
+   和双配置工程回归，清理owned夹具；禁止测试真实用户工作负载、Run/Boot、安装、发布或提交。
+
+### KFL 与验收归属
+
+| 角色 | 规则与范围 |
+| --- | --- |
+| 工具壳/内容/响应 | ALN-1–20、REU-1–9、MIN-1–6、CON-1–5、STA-1–4；同一状态工具、必要身份/真实暂停/原ID、不复制冗余说明，RG01–05。 |
+| 共享组件 | RAD-1–5、COL-1–4、ICO-1/2、TYP-1–4、SCR-1–4、MOT-1–5；零半径、既有向量族/纯颜色焦点/reduced-motion，无新主题，RG06。 |
+| 交互与证据 | INT-1–11、VER-1–6；鼠标/键盘、取消/未知/冲突/跨重启/返回均须实际证据，RG01–06。INT-12无新比较表格，移动触屏/browser history N/A；桌面连续性仍须验。 |
+
+用户已集中批准本r1、上述精确补充与实施范围。下一片从Core类型化共享契约和原ID未决协调
+开始，后接窗口/入口与RG01–06分项真实验收，不重复申请同一批准。图片与合同获批不表示
+代码已实现、KFL/G3已通过；实施/证据状态只在[原验收入口](<../verification.md>)维护。
+
+### R91 实装接驳（不关闭整体 G3）
+
+[恢复窗口](<../src/SystemAutorun.App/Dialogs/RecoveryWindow.xaml>)现已复用r1的单工具壳、身份/状态层级和共同footer，
+并补齐确认与未知页的服务/管理根。解除动作没有Play符号；共享细线族补入Copy字形，其他主题/token保持不变。
+[VM](<../src/SystemAutorun.App/ViewModels/RecoveryViewModel.cs>)只驱动已批准的workflow；本机选中服务的更多与右键入口
+均打开模态工具，不增加独立pause、修复或全局开关。按原G2实施，不重开同一批准。
+
+Lead已查看[150%暂停页](<visual/sa-20261104/r91-recovery-gui/native/normal-paused-150.png>)、
+[确认页](<visual/sa-20261104/r91-recovery-gui/native/normal-confirm-150.png>)及
+[未知查询页](<visual/sa-20261104/r91-recovery-gui/native/unknown-after-query-r2-150.png>)的运行窗口像素，
+并通过UIA语义Invoke执行隔离Agent上的确认与未知只读查询。
+[几何记录](<visual/sa-20261104/r91-recovery-gui/ui-r3/geometry.json>)覆盖三种约定owner尺寸，但实际DPI仅150%。
+UIA/WPF逻辑焦点不替代物理键鼠、原入口返回或100%/125% DPI；这些余项与其他RG01–06结论仍只在原验收入口维护。
+
+## 2026-11-05 — 全局界面审美统一（R104）
+
+**用户已批准本节计划并授权实施。** 用户选择以[已批 r4 参考图](<visual/sa-20261031/dashboard-approved-r4.png>)为唯一视觉基准，
+明确免于另生 G2 效果图；本节因此是 r4 的补充契约，不新增视觉方向。改动前的监控窗口原文保存在
+[before-code](<visual/sa-20261105/r104-ui-polish/before-code/MonitoringWindow.xaml>)。
+
+### S0 状态色：推翻 G2-state-r2 的“选中 = 灰字”
+
+旧规则让已禁用服务与选中项共用 `#8B8B94`，选中看起来像不可用。新规则为选中更亮、禁用更暗，
+焦点只改已有分隔线或字形颜色，不增外框、ring、状态条或改边框宽度（KFL INT-3/3a）。
+
+| 角色（`ColorFocusRole`） | 静止 | 选中 | 键盘焦点 |
+| --- | --- | --- | --- |
+| Row：服务/启动项/主机/DataGrid 行 | 文字 `#A1A1AA` | `#131315` 底、`#FAFAFA` 字 | 已有行底线 `#232329`→`#8B8B94`（4.63:1），字色不变 |
+| Icon：无框图标按钮 | `#8B8B94` | `#131315` 底、`#FAFAFA` | 字形 `#FAFAFA`（3.24:1）；选中+焦点 `#8B8B94` |
+| Toggle：24小时/7天/30天 | `#8B8B94` | 反白 `#FAFAFA` 底、`#09090B` 字 | 未选 `#FAFAFA`；选中 `#6B6B75` |
+| Row 已禁用服务 | `#52525B` | `#8B8B94` | 同 Row |
+
+| Foreground/Caption：文字动作、菜单项、复选框、表头、区块标题（R104b） | `#8B8B94`（对底 6.0:1） | `#FAFAFA` | `#FAFAFA`（对静止 3.24:1）；选中+焦点 `#8B8B94` |
+
+R104b（用户确认）：焦点任何时候都不让文字变暗。原 Foreground 静止近白 `#F4F4F5`、焦点反而降为 `#8B8B94`，
+因此静止改为与图标同级的灰，焦点提亮。已禁用 `#52525B` 仍更暗，可与静止区分。Border 角色语义保持。已禁用服务静止 `#52525B` 对底 2.6:1，按非活动项例外记录。
+
+### S1 遗留对话框统一窗口壳
+
+添加程序、远程主机、系统诊断、任务详情、消息框改为与工具窗口同一自绘标题栏：
+`WindowStyle=None` + 50 DIP caption、1 DIP 窗口边线、细线 `LineIcon` 标题字形（`TextSecondary`）、
+右侧关闭（共享 `SystemCommands.CloseWindowCommand`）。字段、按钮、流程、权限与原 `IsCancel` 结果不变。
+共享样式去掉 Card/Header/Footer/Section 的内嵌底色，只保留 `BorderSubtle` 结构线；标题、表头和按钮改常规字重；
+诊断 OK/FAIL 改为等宽彩色文字，不再是边框徽标。
+
+### S2 监控窗口按 r4 骨架重做
+
+- 标题栏：返回（Esc）、页面标题、刷新、管理远程主机、关闭；取消旧 `HOSTS` 横向 Tab 与底部“返回”按钮。
+- 左栏主机列表与服务列表同构（方形图标框、名称、平台/地址、状态字形与更新时间），状态不再是圆点。
+- 右栏：主机身份头部 + 运行时间/进程摘要；2×2 读数格为“标签 + 等宽读数 + 2 DIP 直线用量条 + 一行明细”，
+  主机资源没有历史序列，因此不画也不伪造趋势；存储卷/网卡两列紧凑列表与上方网格线对齐；
+  “运行保障”独立成右列，异常计数为 0 时中性色。
+- 窗口内两个重复复选框移除，只保留主屏设置菜单里同一绑定的开关；远程主机仍只读。
+- 异常日志页同壳：搜索框、级别、日志目录与计数一行；级别为等宽彩色文字；详情双栏、分隔条键盘与 Ctrl+F 保留。
+
+### S3 细节
+
+趋势无历史时不画虚线基线，“暂无历史”靠左作次级提示；健康时间带图例改为三枚与色带同源的色块；
+状态栏异常原文去掉尾部句号，修复“unavailable.；”；启动项未选中时隐藏操作字形、空态居中；
+日志起始时间输入框为空时显示格式示例（`TextHint`，5.96:1）。
+
+验收证据与未覆盖项只在[原验收入口](<../verification.md>)维护。
+
+## 2026-11-05 — 同级视图、默认采集与紧凑窗口（R105）
+
+**用户已批准方向并授权实施。** 来源是用户实机反馈：主机与服务监控应当同级切换、主按钮悬停文字消失、
+看不到 CPU/内存/历史、新建任务信息过载、窗口与文字过大、子窗口与主窗口难以区分。G2 效果图
+[主窗口](<visual/sa-20261105/r105-tabs-addtask/g2/g2-main-services-r1.png>)与
+[新建任务](<visual/sa-20261105/r105-tabs-addtask/g2/g2-add-task-r1.png>)**只作紧凑度参考**：
+用户明确“tab 放在顶部，整体风格依然保持之前的”，因此不采用其左侧导航、绿色状态与带刻度大图表，
+视觉仍以 r4 与 R104 为准。改动前原文保存在 [before-code](<visual/sa-20261105/r105-tabs-addtask/before-code/>)。
+
+### 同级视图（顶部 tab）
+
+- 主窗口标题栏一行：品牌、`服务 | 主机 | 异常日志` 三个 tab、仅服务视图显示的搜索与筛选、刷新、设置、窗口按钮。
+- 独立监控窗口取消；其主机与异常日志两页成为嵌入的 `MonitoringView`，内容与 R104 S2 相同，
+  “管理远程服务器”从旧标题栏移到主机列表表头。
+- 选中 tab 为 `Selection` 底色 + `InteractionSelected` 字色（INT-3a），无指示条、下划线或外框；
+  焦点只提亮文字（Foreground 角色）。快捷键沿用 Ctrl+1 主机、Ctrl+2 服务、Ctrl+4 异常日志，Ctrl+F 按当前 tab 聚焦对应搜索框。
+- 离开主机 tab 时回到本机，避免服务操作与异常日志读到远程主机的资源。
+
+### 默认采集
+
+- 所有启用的工作负载都采集状态、CPU、内存与 24 小时历史；“常驻追踪”只再决定自动恢复资格与常驻异常计数。
+- 服务详情头部对未常驻的服务显示次级提示“未常驻追踪”，悬停说明其含义与开启入口。
+
+### 新建任务
+
+常用区只有程序（浏览后自动填名称、工作目录、进程匹配规则）、名称、启动时机、常驻追踪；
+类型、参数、窗口模式、工作目录、描述、依赖、启动延迟与健康检查收进默认折叠的“高级”。
+高级内字段校验失败或接管的启动项带参数时自动展开。字段、校验与保存契约不变。
+
+### 主次窗口与尺寸
+
+- 主窗口默认 1120×700、最小 960×600，正文 13；工具窗口（日志、Windows 启动项）默认 1040×660、最小 900×560，
+  远程服务器 920×600；所有工具窗口只有关闭按钮、不进任务栏，标题只写功能名，不再重复“SystemAutorun”品牌。
+- 主窗口在其任一工具对话框打开时整窗覆盖 `Semantic.Brush.Scrim`（`#09090B` 62%），关闭后撤除。
+- 主窗口关闭按钮的提示与无障碍名称为“收起到托盘”，并说明完全退出走 设置 → 退出；托盘行为本身不变。
+
+### 按钮模板
+
+主按钮、普通按钮与危险按钮改用只含填充、一条结构线与内容的 `PlainButtonTemplate`。
+原 MaterialDesign 模板在悬停时叠加由文字色派生的遮罩，浅色主按钮上的深色字因此被盖住。
+危险按钮目前无使用处，其红字在深底上低于 4.5:1，为既有色板问题，本轮未改。
+
+验收证据与未覆盖项只在[原验收入口](<../verification.md>)维护。
+
+## 2026-11-06 — 刷新不闪、浅色模式、紧凑与动画（R106）
+
+**用户已批准计划并授权实施。** 来源是 R105 实机反馈。浅色模式免生效果图，按深色层级直接映射灰白；
+可用率与健康横条信息重复，合并。改动前原文在 [before-code](<visual/sa-20261105/r106-polish/before-code/>)。
+
+### 刷新与数据
+
+- 10 秒刷新不再 `Clear()` 重建：服务行与异常日志行按名称/内容键原地更新、只增删变化项，选中项与行容器保留。
+- 同一服务、同一时间窗的历史在新回复到达前保持显示；换服务、换时间窗或失去追踪身份才立即清空。
+- 健康横条标题行显示“可用率 xx% · 已观测 49 分钟 3.3%”；删去可用率、覆盖率两个趋势格，CPU 与内存上下排列、趋势占满宽度。
+- 删“本机 Named Pipe Agent”（传输细节；远程主机仍显示地址）与网络格“更新于”（读数视为实时）。
+
+### 外观
+
+- 浅色（灰白）：背景 `#F4F4F5`、面 `#FAFAFA`、主文字 `#18181B`（17.4:1）、次文字 `#52525B`、提示 `#6B6B75`（4.9:1）、
+  故障 `#BE123C`（5.2:1）、警告 `#8A5A00`；主按钮反转为深底浅字。层级位置与深色一一对应，仍无圆角、阴影与渐变。
+- 设置 → 外观：跟随系统（默认，读 `AppsUseLightTheme` 并随 Windows 切换）/ 深色 / 浅色，打开中的窗口即时换色。
+  选择存为每用户 GUI 偏好 `%LOCALAPPDATA%\SystemAutorun\appearance.json`，不写共享的 root 设置。
+- 实现：XAML 对 `Semantic.Brush.*` 全部改为 DynamicResource；浅色在 Application.Resources 上覆盖同名键，深色移除覆盖。
+- 严重级别改为 `StatusFailed` 实底 + `OnStatus` 白字（4.69:1）标签；错误为红字；警告为琥珀字。
+- 滚动条 6 DIP 轨道、4 DIP 滑块，悬停/拖动时滑块占满轨道；轨道无底色。
+
+### 紧凑
+
+主窗口 1060×660（最小 920×580）；日志、启动项 960×600（最小 840×520）；服务行最小高 44、字号 14；
+详情头 54、读数 22、读数格最小高 84；服务列宽 232–340。
+
+### 动画
+
+- 悬停/选中底色经 `SurfaceMotion.Fill` 140 ms 缓动，可中途反向；静止时直接引用共享主题画刷。
+- 前景色沿用 `ColorStateAssist` 120 ms 过渡，换主题时立即重算。
+- tab 页面与工具窗口正文显示时 160 ms 由 0.4 透明度上移 2 DIP 淡入，内容全程可操作。
+- 系统关闭客户区动画或 `ReduceMotion` 时全部直接到终态。
+
+### 远程服务器
+
+编辑区只剩一个主按钮：新增时“添加”、编辑时“保存”，一步写入列表并保存；原“应用到列表”删除，字段校验错误由同一按钮报告。
+
+验收证据与未覆盖项只在[原验收入口](<../verification.md>)维护。
+
+## 2026-11-06 — 主次窗口与可逆短动效（R107）
+
+**G1/G2限定范围及实施已批准。** 用户明确选择“可以，只参考比例，保留现有布局与风格”。
+[生成候选r1](<visual/sa-20261106/r107-compact/g2/main-add-size-r1.png>)（1536×1024 PNG）仅提供主次窗口比例及表单紧凑度参考。
+图中的表格主布局、绿色状态、胶囊开关、常驻即自动重启等生成偏差不落地；布局继续沿r4/R105，颜色/组件沿R104/R106。
+已重新查看原图，不把生成图当运行界面或DIP测量证据。
+
+- 主窗默认 **960×620 DIP**，保留 **920×580** 最小与宽桌面；不缩字体，不另加移动布局。
+- 工具窗常用约 **800×500**，添加表单约 **520** 宽。子窗的宽高受主窗及工作区约束，明显小于主窗；高级内容与长文本内部滚动，标题和主要动作始终可达。
+- 不改变数据、默认动作、权限、保存/取消结果、模态性或未知状态封锁；表单失败保留输入，提交中原有关闭保护保持。
+- 动效沿共享实现补齐 **120–200ms** 的进入、静止、退出及中断反向：页面、工具正文、遮罩、高级披露使用克制淡变/短位移，不为每次监测数据更新播放动画。
+- Windows减少动画与继承ReduceMotion均直接到终态并释放动画资源。永久结构线不增宽；不出现outline、ring、焦点下划线或选中条，保留既有纯颜色焦点。
+- 先窗口约束与消费者，再成对动效与生命周期；分别核对主窗/添加/工具、深浅色、最小/常用/宽桌面及现有DPI承诺。VIS必须看实装像素，FLOW必须实测开关/返回/焦点/快速反向/减少动画，ENG不能替代。
+- 适用KFL：ALN/REU/INT/MOT/VER为变更重点，既有RAD/COL/ICO/TYP/SCR/CON/STA合同保留并做关联回归；不新设主题、信息架构或验收账本。
+
+实施状态、失败与未验项只归[原验收入口R107](<../verification.md#2026-11-06--持续运行cli-与主次窗口r107进行中>)；本节批准不表示G3通过。
+
+## 2026-11-08 — 1 秒实时刷新与补齐交互动效（R108）
+
+用户要求“默认 1 秒实时刷新”并补齐缺失动效，当场选定：资源 1 秒、探测 10 秒；补菜单/下拉/提示弹出淡入、下拉项/菜单项/滚动条悬停渐变、读数条与数字平滑、复选框勾选过渡、启动项管理窗进出动效；完成后替换运行版本。沿 R104/R106/R107 视觉与布局，不改信息架构，免生效果图（Inherit）。
+
+- Agent 每秒采集主机与进程资源，复用最近一次健康观测；被动健康探测、恢复证据、历史落盘与发布仍每 10 秒（配置失效立即补一次）。资源秒级 tick 不推进连续健康、不触发恢复。
+- 主窗可见且在本机时每秒静默读取 Agent 快照（不显示忙碌/状态文字、失败不清现有读数），每 10 秒做一次完整刷新（配置、异常日志、历史、展示缓存、远程）。健康未变时不重排服务列表；存储卷/网络行原地更新。
+- **推翻 R107“不为每次监测数据更新播放动画”**：主机与服务读数条从当前显示值 200ms 缓动到新值，同形数字（“37%”→“42%”）滚动计数，形状或单位变化（“--”、MB→GB）直接切换。
+- 弹出：右键/更多菜单、tooltip、下拉框与子菜单 160ms 淡入（沿 FadeOnShow）。悬停：下拉项、菜单项、滚动条滑块、启动项行改用 SurfaceMotion 140ms 颜色渐变；滑块不再悬停变粗。复选框勾选符号 120ms 淡变可中途反向。启动项管理窗接入 ToolWindow/PresencePanel 进出。
+- 系统关闭动画或继承 ReduceMotion 时全部直接到终态；不新增 outline、ring、下划线或选中条。
+
+实施与验收记录见[R108 验收入口](<../verification.md#2026-11-08--1-秒实时刷新与补齐交互动效r108>)。
+
+## 2026-11-09 — 去重与科幻线条进场（R109）
+
+用户实机反馈“界面有重复信息、动效朴素、诊断/登录启动两个按钮丑且位置怪”，当场逐项选定（G1/G2 合并确认）：去重与布局走 Inherit，动效走 Explore 但**明确免生效果图**，以本节动效规格为准。
+
+- 服务页：详情头部删 CPU / 工作集读数（下方趋势格已有），只留运行时间与“未常驻追踪”；历史行删“24 小时”窗口文字（右侧切换已表明）。
+- 主机页：**整列移除“运行保障”**（常驻/异常计数、系统诊断、登录启动、远程只读说明），读数格与存储/网络列表占满宽度；两项工具仍从 设置 菜单进入。“最高磁盘”改为**整机磁盘**：全部已就绪卷的已用/总量比例，明细为“已用 / 总量”；主网络格不变。页脚删主机状态说明（与头部状态提示重复）。
+- 设置菜单删“异常日志”项（顶部 tab 常驻）。
+- **推翻 R106/R107“页面 160ms 淡入”为唯一进场**：切 tab、主窗首次显示、工具窗打开时，页内已有的结构细线沿方向生长（横线左→右、竖线上→下、混合边框对角），生长前沿带近白亮头，单线约 180ms，按位置错开至多约 90ms；文字/图标/读数做两次低幅闪烁（约 150ms）后定格。要求利落、整体约 0.3 秒内结束。
+- 仅用现有灰阶与各线自身颜色，不加新颜色、发光、外框、阴影或常驻装饰；动画只覆盖属性值，结束后回到原主题画刷。数据每秒刷新、选中变化不触发；系统关闭动画或 ReduceMotion 时完全不播；动画期间内容照常可操作。闪烁幅度低、次数 ≤2，避免强闪。
+
+实施与验收记录见[R109 验收入口](<../verification.md#2026-11-09--去重与科幻线条进场r109>)。
+
+## 2026-11-10 — FakeUI 进场与共享对齐修正（R110）
+
+用户在只读诊断及方案后明确“开始执行”，批准本节限定变更（Inherit，复用 R109 科幻动效方向与免生图依据）。业务旅程、数据、权限、灰阶/异常色、直角和现有窗口尺寸不变。
+
+- 进场画布固定原位、不叠整页淡入；结构线按各自正交边逐段展开，短锐前沿，取消复合边框的对角渐变。单线 170ms、分组错开 0/20/40/60ms、前沿 3 DIP；字形延后 130ms，以 100ms 离散两次明暗跳变收口，最迟 290ms 稳定。时钟在首个渲染帧同步续播，避免 Show/布局消耗进场时长。主窗首次显示、三页切换及显式工具窗共用；秒级读数只保留 R108 平滑，不重播进场。首次打开原来折叠的页等待可见布局就绪；页面中性底板与层序遮住旧页，避免短闪间隙透出旧内容。
+- 退出保留 160ms 可中断透明度收口，不移动布局；退场立即退出输入。中途返回从当前透明度接续、不重新闪烁；隐藏、卸载、系统减少动画与继承 ReduceMotion 均停止并释放动画，回归原主题属性。
+- 服务/主机侧栏共享 240–340 DIP 宽轨；主机标题、读数与资源列表统一 20 DIP 左右留白，服务详情也统一 20 DIP。服务页两侧底栏统一 28 DIP 并接齐结构线；异常日志筛选栏及列表/详情表头统一 44 DIP。主网络与相邻指标共用标题行高度，保留 IP 的 20 DIP 字号，不靠放大或硬挤长值。
+- ALN/REU/MOT/INT/VER 为本次必需检查：深浅色、920×580 / 960×620 / 1320×820 / 1620×651 桌面范围及现有 DPI；实际进场帧、切页、快速反向、工具开关/返回和减少动画。不得以构建、静帧或属性断言冒充连续动效或物理输入证据。
+
+实施与 VIS/FLOW/DATA/ENG 只在原 verification 账本 R110 记录，不新建并行入口。
+
+## 2026-11-10 — 分阶段进场、精简侧栏与全宽动作栏（R111）
+
+用户以五张实机截图指出动效过快/同时出现、菜单留白、冗余列表及侧栏不可折叠，审阅七项统一方案和标准弹窗范围后明确“你先进行调整 将调整改进去 然后再看”。G1/G2 变更及实施已批准，走 Inherit：当前实机截图与 r4/R105 灰阶直角为基线，不另生图、不换视觉方向。R111 在本节范围内覆盖 R110 的时序与列表内容，不改变 Agent、任务、远程连接和安全确认逻辑。
+
+- MOT：固定画布不漂移，约600ms收稳；框架线→区域线→标题/标签→读数/操作分阶段，区域内成组、区域间明显错开，不逐字打字。仍限两次低幅短闪、正交绘线与3 DIP前沿；退出/快速反向与减少动画沿R110，R108秒级读数平滑不重播进场。
+- MIN/STA：服务行只留名称和真实FAIL警告；去掉类型图标、运行时间及禁用图标，禁用仍以暗字区分。主机行只留名称，本机显示“本机”标签，不显示平台/地址/更新时间/对勾；详情头部正常的✓OK隐藏，异常/未知的真实反馈保留。
+- INT/CON：服务/主机汉堡均实际切换侧栏，折叠保留窄控制栏及展开/添加入口，详情占用释放宽度；选择、筛选、滚动不重建、不清空，两个页面在本窗口内各自保留折叠状态，不新增持久化配置。展开计数明确“5项服务”“1 个服务器”，仍绑定真实数量。
+- TYP/DATA：服务与主机详情UPTIME显示到秒，格式为“2天 06:11:03”（不足一天“06:11:03”）；保留已有数据来源/新鲜度及未知值语义，不拿本机uptime填远程或服务空值。
+- REU/ALN：主菜单及嵌套子菜单移除多余上下容器留白，保留行内padding、分隔线、勾选/箭头及键盘导航。标准弹窗（远程服务器、添加、消息/确认、诊断、任务详情）的提交/取消/关闭动作占满底栏内宽，按可见按钮数等分；保留16 DIP外边距与8 DIP间隔、原主次/危险顺序及默认/取消语义。复制/刷新/分页等工具控件与恢复/登录启动的专用流程底栏不盲目拉伸。
+- VER：在原verification账本分别记录ENG、双主题桌面矩阵实装像素与分阶段采样、菜单/子菜单开关与主题、两页折叠/展开和跨页状态、标准弹窗一/两键布局及取消/失败保留；仅隔离root做写入旅程，禁止操作真实任务。最终启动调整后的GUI供用户查看，原Agent保留；未实测项如实标记。
+
+## 2026-11-10 — 实机反馈快速修正（R112）
+
+用户以五张实机截图明确要求直接快速修改、完成后启动由其测试，且“不要执行其它测试”。G1/G2沿现有实窗与R111灰阶直角走Inherit，不重做风格；本轮不运行自动/手工验收旅程，VIS/FLOW/DATA留待用户，ENG仅编译启动所需版本。
+
+- 悬停只做稳定颜色过渡，不离散闪烁；进场仍分阶段绘线。输入框、下拉框、按钮/选中行及色块整组延后平滑显现，避免模板内部文字和背景提前露出；鼠标所在文字/图标也不短闪。日志切换条目使用独立的200ms单次淡入，不随10秒相同日志刷新重复。
+- 所有ComboBox复用无阴影、直角、零容器padding/偏移的Popup，保留原生PART_Popup/PART_EditableTextBox、选中项、键盘与滚动语义，不沿用MaterialDesign的投影和空白。
+- 存储卷字号保持，盘符/卷名同基线，复用整机磁盘的标题行、全宽进度条及左对齐容量说明；盘符共享列宽。
+- 移除添加表单和服务菜单的常驻/观测选择、未追踪提示、已观测时长与覆盖率显示及三页底部状态栏，释放保留行高。所有启用服务继续默认1秒资源/10秒健康采集；新任务沿原默认常驻值true，不批改现有任务的自动恢复资格。内部HealthObserved、ObservedAt、安全恢复门禁与历史覆盖率数据不删除、不伪造；旧IPC/配置的恢复语义兼容保留，不再作为GUI可选观测功能暴露。
+
+实施、实际构建及启动状态只记录于原[验收账本](<../verification.md>)，本轮不宣称G3通过。
+
+## 2026-11-10 — 随机逐字、详情切换与窗口记忆（R113）
+
+用户进一步要求切换时文字按阶段、组内随机逐字出现，列表选择右侧同样过渡，白色块不抢先出现；默认窗口16:9并保存用户尺寸。沿真实实窗与灰阶组件走Inherit，覆盖此前“不逐字”的局部合同，悬停仍不闪、数据tick不重播。
+
+- 阶段仍为框架→区域→标签→读数/动作；每段文字按真实排版的字素格随机揭示（280ms），不改真实字符串、绑定、复制内容或布局，不插入乱码。只读日志正文包括在内，密码/可编辑输入不逐字重写。完成/取消移除遮罩，减少动画显示终态。
+- 服务选择按名称、主机按稳定ID、日志按不可变Entry触发右侧完整内容进场，顶部视图选中块也参与切换；延后到绑定/布局就绪，先遮住候选新内容，防止单帧漏出。非中性Border/Panel底色也独立延后显现，包含大面积白色块，而不仅小色块。
+- 主窗默认1152×648 DIP（16:9），不强锁用户拖拽比例；保存并恢复正常窗口尺寸，最大化/最小化不用屏幕/零尺寸覆盖正常尺寸。复用现有每用户外观设置与主题共同增量保存、保留其它字段，不写Agent管理的根配置、不新增独立配置文件，也不重启Agent。650ms防抖、关闭兜底；恢复时检查有限值并限制在工作区。
+- 延续用户上一轮边界：仅编译、替换GUI并启动交用户检查；不执行测试/交互验收，不将构建或旧测试称为本轮VIS/FLOW/DATA通过。
+
+## 2026-11-11 — 流畅优先、弹窗遮蔽和侧栏过渡（R114）
+
+用户反馈R113明显卡顿，明确允许取消随机逐字，改为文字分段同现；要求弹窗不重播主页面、背后纯色加缓慢斜纹、关闭后恢复，弹窗壳自身有过渡，动画绘线临时红色，侧栏展开/收起有动画。按GOV-1、REU-3/4、MOT-1/2/3沿既有实窗Inherit执行，不另起视觉方向。
+
+- 性能优先：不再测字符坐标、遍历字素或制作逐帧OpacityMask；文本仅1–4段冻结矩形Clip，原生编辑器/长日志整块淡入，真实字符串/绑定/复制不变。底色最多5步、描边最多8步冻结图像，动画期间不再进入.NET自定义GetCurrentValue重建绘图；范围保留分组时序，不要求随机。
+- 临时描边使用语义红色，结束/中断删除动画层回到既有画刷，不修改静态主题或状态颜色。
+- 子控件Loaded冒泡不再被当作窗口首次加载：主窗仅自身首次Loaded进场，WindowTheme仅处理窗口自身Loaded；PresencePanel同样过滤子树加载事件。弹窗打开不重播主页面。
+- 打开任意所有权链弹窗，主窗（嵌套时也覆盖父工具窗）停止现有进场与排队过渡、隐藏原内容但保留布局/选择/滚动，显示不透明主题底色及低对比48 DIP斜纹；仅一个平移时钟以20fps、14秒一周期缓慢移动，隐藏/最小化/关闭/减少动画时停止。主页面可见性读取/秒钟暂停，Agent工作不停止。最后弹窗退出结束后恢复真实内容，允许重新进场；不重建数据上下文。
+- 工具窗壳自身为300ms透明度与8 DIP垂直进出过渡，内部内容继续分阶段进入；退出延迟、最终Closing取消、DialogResult、真实Closed资源释放约束不变。
+- 侧栏在52 DIP与原0.3*:1*（240–340 DIP约束）之间用220ms/30fps宽度过渡，原列表淡入/出，完成后恢复原星号列；快速反向接当前状态，不重建列表或改变选择。
+- 按既定边界仅编译后启动供用户检查；流畅性、截图、弹窗真实旅程与侧栏快速反向等VIS/FLOW仍须用户验证，不以静态实现/构建冒称已通过。
+
+## 2026-11-11 — 刷新不重播、日志框线与无闪烁（R115）
+
+用户反馈进程页反复刷新进场、日志选择后的右侧框线没有动画，要求所有hover禁止闪烁，并明确本次修改后执行测试流程。沿R114灰阶直角实窗走修复快速路径；本次测试授权覆盖此前“不跑测试”的限制，不改变业务数据、安全门禁或界面方向。
+
+- 详情进场比较绑定稳定后的值，而非新反序列化对象/字符串引用；相同服务/主机/事件的资源tick与同轮A→null→A不重播，真实选择与快速反向仍保留一次完整进场。
+- 原生只读编辑器的正文继续整块显现，结构边框在编辑器早退前单独纳入正交绘线；结束、中断、减少动画时移除动画层，保留主题/焦点颜色来源与真实文本。
+- 所有hover仅稳定颜色过渡，不触发文字/图标进场或亮度脉冲；透明色端点采用另一端的隐藏RGB，避免WPF透明白插值产生中途亮峰；共享文字/控件显现也改为单向0→终态，撤销R111残留的低幅短闪，不反复变暗变亮。
+- 弹窗淡入完成卸载时钟，工具窗内部进场等原生首次布局稳定后再开始；背景斜纹在owner关闭及Dispatcher结束时释放主题/系统订阅，不依赖可能缺失的Unloaded。
+- 测试与实窗像素/旅程分别记入[原验收账本](<../verification.md>)；只在隔离夹具做合成选择/刷新，不操作真实服务，原Agent保持运行。
+
+## 2026-11-11 — 绘制前沿原地落为真实UI（R116）
+
+用户指出R115红线过渡到实际UI不自然，并批准“短红色前沿向前绘制、身后线条落回主题色、对应内容随区域显现”的方向。沿既有实窗Inherit，只重开动效衔接；不改变布局、数据、交互旅程和静态主题，不重新生效果图。
+
+- 红色仅是3 DIP绘制前沿及不超过36 DIP的短尾迹，已完成的其余正交边使用最终主题线色；跨拐角连续计程，不把整框铺成红色。几何完成后用60ms收稳前沿颜色再卸载动画，原线宽、位置及主题/焦点画刷来源不变。
+- 区域标签、读数/动作、底色在绘线过程中重叠出现，不等待整套线框退出后换皮；仍是最多4段文本或原生整块显现，无位移、逐字测量或hover脉冲。
+- 每条绘线在进场时预生成最多15个冻结状态，底色7个；原120目标预算不变，不在渲染tick创建几何或画刷。快速切换/隐藏/尺寸变化/减少动画/关闭仍即时释放旧时钟并恢复真实UI。
+- 验收：冻结状态/尾迹局部性/末尾连续性/区域重叠的自动断言，加双主题服务详情与日志详情的实窗连续帧；保留R115稳定刷新及hover回归。探针不经持久化外观菜单改变用户偏好，不启停真实任务或重启原Agent；记录仍进入原验收账本。
+
+## 2026-11-11 — 整线末段回色与分层接力（R117）
+
+用户依据真实主机页截图否定R116空间渐变与过度同时出现，并批准“纯色绘线、末段整条回色、区域与元素分层接力”。本节取代R116的短前沿及压缩时序，沿既有实窗Inherit，不改变布局、静态主题、数据或交互旅程。
+
+- 线条绘制期间统一纯红；几何完成后100ms收尾窗内，整条已绘路径使用同一颜色逐步回主题色，最后20ms保持真实终值后卸载。只有时间上的均匀变色，禁止沿线渐变、亮头与尾迹；半透明颜色仅对绘图组应用一次。
+- 骨架先起；服务的标题/健康/CPU/内存、主机的标题/CPU/内存/磁盘/网络、日志的标题/元数据/正文采用继承的Region顺序，每区约100ms接力；区内标签、读数、图形分层，再以45ms错开有限元素。保留轻微重叠，所有通道最多900ms，不把全页逐项串成长队、不恢复逐字测量。
+- ProgressBar与原生控件按整块参与，仪表模板不再伪装成绘制线条，数据值和采样几何保持真实。语义区标记只控制共享时序；未标记的小窗仍用有界位置顺序，不增加点击/焦点外框。
+- 每线最多16个冻结状态、底色7个、每类120目标预算；无渲染tick绘图。保持R115的稳定刷新/hover及快速切换、隐藏、减少动画、尺寸变化、关闭清理；回归和双主题主机/服务/日志实窗连续帧分别验收，仍不改偏好或真实任务状态、不重启原Agent。
+
+## 2026-11-11 — 弹窗首末帧与背景过渡修复（R118）
+
+用户提供原生黑色矩形截图，确认弹窗出现与消失均发生，并要求背景出现有动画；已批准修共享弹窗显示时序。沿R114/R117实窗Inherit走修复路径，不改视觉方向或业务流程。
+
+- 弹窗第一次可见及最后销毁前的每帧均应正确合成主题背景，不允许黑色宿主矩形，也不以关闭进出动画或改成瞬时主题色矩形规避。保留300ms整窗淡变、8 DIP位移及内容绘线，使用WPF支持的合成路径，不逐帧篡改原生窗口样式。
+- 主窗与嵌套父窗的主题纯色斜纹遮罩均有约200ms可逆出现/消失；进入时立即暂停后台进场/读取及遮挡输入，原页面只保留到遮罩完全覆盖后再隐藏，避免先跳成空背景。最后弹窗实际退出后才恢复原页面；选择、滚动、绑定和数据上下文不重建。
+- 快速反向承接当前透明度，重复关闭/最终否决/DialogResult/原生Closed释放与减少动画保持；隐藏、最小化、卸载、owner关闭和Dispatcher结束回收动画/订阅，不增加焦点外框。
+- 分别记录双主题原生进入/退出连续帧（不能用RenderTargetBitmap替代桌面合成）、背景过渡、嵌套返回及关闭取消回归；只用隔离合成夹具，不写外观偏好、不执行真实服务启停、不重启原Agent。
+
+## 2026-11-11 — 实时资源趋势、单行详情头与动效复用（R119）
+
+用户批准B方案并明确“运行时间还是和标题同一行但是放右侧”。Inherit当前实机灰阶、直角、密度及R117/R118可见效果，不另生效果图。范围为GUI显示、冻结矢量资源复用与隔离后端核验，不改Agent采集/历史落盘及业务命令。
+
+- CPU/内存默认最近5分钟秒级实时趋势，仅使用实际收到且身份/时间有效的资源快照，有界缓存并按任务/Agent与进程启动身份隔离；重复或过时快照不制造采样，隐藏/暂停/断采/切换留下真实缺口。保留历史模式与24小时/7天/30天选择。
+- CPU用百分比，实时内存主读数与趋势用真实工作集MB/GB；旧历史协议仅提供内存占物理内存百分比，历史视图明确标为百分比，不借用当前物理内存反算历史字节。尺度自适应、有最小跨度和迟滞，显示上下限/时段及悬停原值；真实常值仍为直线，未知不补零。时间桶接续按真实桶区间与可用性处理，不沿用20秒点距误判。
+- 服务详情头保持一个固定行：图标/服务名、健康时段/资源模式、停止/重启/日志/更多、最右运行时间。外部组件统一32 DIP高、字形仍按语义大小居中；长标题省略并可查看全名，不挤掉操作或运行时间。健康带不再另占右侧按钮行；窗口顶栏不改。
+- 动效保留原时序、冻结状态数量、纯红整线末段回色、接力与可逆过渡；只对同尺寸/边宽/颜色/透明度的冻结矢量帧有界复用，不共享可变时钟/事件、不栅格化整页、不降帧或减少阶段来冒充优化。测量重复准备的分配/耗时，另测实窗切页和弹窗。
+- 已知工具窗AllowsTransparency实现与先前禁止约束冲突，R118视觉通过不等于该后端获批。只先隔离核验原生宿主+不透明HwndSource，未证实模态/所有权/veto/真实Closed/隐藏/DPI/chrome兼容前不替换运行版；若需重构生命周期则另批专项，不隐瞒遗留限制。
+- 分开核对VIS/FLOW/DATA/ENG，覆盖双主题、920×580/1152×648/1320×820及既有DPI；不新增焦点外框，不动真实业务/外观偏好或原Agent。验证与实测限制只记原verification入口。
+
+## 2026-11-12 — 独立启动/恢复策略与持续监测（R121）
+
+G1/G2：用户批准只读核对后的实施方案，并修订为“磁盘看IO”“进程自动恢复需要保留，应用内手动停止除外”。沿用户本轮五张实机截图及R117–R119灰阶直角体系Inherit；不重新探索风格、不生整套效果图。此节覆盖R119的选中项GUI缓存/标题右侧运行时间约定，覆盖上一轮方案中移除自动恢复的建议；R117/R118效果、时长和生命周期保持。准许最终受控更新GUI和Agent，不授权对真实受管进程做启停试验。
+
+- POLICY：每任务两个独立开关：打开应用时未运行则启动、进程停止后自动恢复。启用监测不依赖任一启动开关；已存在的进程不重复启动，未知/权限不足不自动启动。GUI启动检查每次初始化仅执行一次，不在刷新/重连重放。应用内手动停止先持久化暂停意图；跨GUI/Agent重启仍抑制恢复。明确手动启动/重启才按原控制门禁恢复，未知结果不盲重放。保持配置CAS、任务身份、依赖/权限、退避、回执及持久暂停保护；旧配置无损兼容，不把常驻标记直接批量映射为新启动开关。
+  - 兼容采用可空任务字段：缺省才继承旧偏好；GUI启动继承旧启动偏好，恢复继承旧恢复偏好且要求旧常驻标记。任务显式true/false优先，不与旧全局再次AND；新建/编辑只写本任务，不在加载时改写全体或清空旧字段。
+  - 持久控制账本缺失/损坏不是“没有手停”。GUI自动检查不得初始化或重置账本；明确提示需先手动启动目标确认意图，沿既有手动控制初始化/解除目标暂停。已健康且实际存在的依赖无须开启自身恢复；缺失依赖未授权启动时阻止父任务，不偷偷补启。独立存在性探测不借TCP健康证明进程存在/缺失。
+- DATA：Agent独立维护所有启用任务和主机最近5分钟、每秒实际样本的有界缓存；GUI切换/未选中/隐藏/关闭不停止采集。历史每10秒落盘，沿用最多30天与64MiB容量先到先裁；Agent重启秒级缓存重新积累，旧持久历史保留。界面明确实际最早记录/断档与截断，不承诺完整30天、不补造旧主机或秒级数据。健康发布/恢复仍使用独立10秒健康节拍，不把资源tick当新健康证据。
+  - 秒级只记录真实新增的资源捕获，失败残留诊断缓存不重复当新点。资源连续性按当前PID/启动时间集合、配置代际和启用状态判断，不借10秒运行时间缓存连线；缺身份留缺口。同一捕获中重叠任务命中同一PID时复用一次物理读取，不重复消耗CPU差分基线；首样本未知及实际资源值一致。内存环同时限时间、槽数与总载荷，压力裁剪须明确实际最早记录和截断，不静默漏掉启用任务。
+  - 健康/落盘节拍按[Agent计划槽位](<../src/SystemAutorun.Agent/AgentMonitor.cs>)推进，不把前次资源tick的抖动累积成节拍漂移；漏过的槽位只采当前，不补造或重放健康样本。配置代际变化与倒钟重建计划，不让一秒资源tick重复发布旧健康证据。
+  - 资源查询独立于健康覆盖率，明确秒环/持久源、源分辨率、聚合桶宽、实际记录边界与截断。长窗只求有效样本均值，不将10秒档升采样为秒级；桶内、跨桶、单指标部分缺值和epoch边界不得伪装成连续覆盖。秒环最多301槽、32MiB估算载荷及100000任务行；持久帧按既有记录字节预算准入，不另设256任务配置门槛。排队落盘优先于新的历史读。持久响应逐桶返回（含未知桶），客户端核对条目数与所属桶，按桶中心定位均值；未知标记不是新增采样，真实记录边界仍独立返回。
+- HOST：CPU百分比、内存用量、整机真实磁盘读/写B/s、网络接收/发送B/s四张轨迹，保留当前读数/必要说明，四图共享时段控制；容量/存储卷信息保留在原存储区域，不拿容量当IO。IO首样本、计数器/接口变化、采集失败与重启均留真实未知/缺口。旧历史追加可空字段兼容，旧任务工作集字节可查询，未知不反算造数；旧Agent不支持新查询时明确不可用。
+  - IO口径采用Windows PhysicalDisk(_Total)真实未缩放字节速率。网络延续现有活跃、非回环/隧道IPv4接口的逐接口增量合计，须说明含虚拟接口、可能重复计入同一流量，不冒称唯一物理链路或互联网流量；接口身份而非名称/地址决定计数连续性。磁盘读/网络收为实线，写/发为虚线（此R121线型已由R124覆盖，现为不同灰度实线），方向共享从零开始的速率尺度与悬停读数；四图共享模式/时段，长窗时间轴显示日期，小窗滚动保留存储卷与接口信息。
+- UI：删除设置中与页面等义的重复主机/日志入口和全局进程启动/恢复开关；管理操作回所属页面。全量单来源日志查看与打开目录不等于异常汇总页，保留其能力并收拢为单个“日志工具”子菜单，不以精简为名删功能。Windows启动项管理能力保留单一入口；工具自身Windows自启集中处理且与托管进程策略分开，不擅自删除系统现有登记。移除重复纯状态/批量补启动入口，不删除必要错误反馈或底层旧数据。服务头动作统一图标画布/视觉尺度/线宽，停止保留方块、重启用不带时针环形箭头。删除覆盖率读数，将运行时间移到其原位置；正常健康区间深灰实心（暗色#303036、亮色#52525B）、未知斜纹、故障红色，不能用正常填充掩盖真实未知。
+- MOT：真实变化的指标读数、新增/修改曲线段及健康区间局部转红约600ms后回主题/状态本色；不整图变红。首次装载、选择切换、滚动/坐标平移及纯计时走秒不触发变化高亮；不变的有效样本不重复闪烁。可见页只绘必要更新，渐退不逐帧重新投影历史/创建几何；隐藏/减少动画/卸载/快速切换立即释放叠层时钟。
+  - 共享实现归[读数与时钟租约](<../src/SystemAutorun.App/Services/DataChangePulse.cs>)、[真实变化区域比较](<../src/SystemAutorun.App/Services/DataChangeRegions.cs>)及[绘图局部叠层](<../src/SystemAutorun.App/Controls/DashboardPlot.Pulse.cs>)；读数显式绑定观察值，不监听滚动数字的插值文本。叠层一次建立、仅动画Opacity，保留故障/正常语义、未知斜纹、线型与格间隙；无目标上下文、首个有效数据集及模式切换只建立基线。实施与分项验收只记[原账本](<../verification.md>)，不把fixture运行帧当原生旅程或呈现FPS证据。
+- ACCEPT：隔离验证两个开关独立、已存在/缺失/未知、手动停止跨重启、恢复竞态/失败与旧配置兼容；从未选择B、A驻留后选择B、关闭重开GUI均可读已有轨迹；真实OS磁盘IO/网络采样与首样本/断档独立取证；旧历史/容量裁剪/查询错误/Agent重启留档。双主题920×580、1152×648、1320×820及144 DPI实窗核对布局、菜单、鼠标/键盘、局部红退与实际图表。分段性能覆盖选择、历史回包、采样和最后Stop后至少1秒，不以回调冒充呈现FPS。最终核对生产受管进程身份不变、仅受控替换GUI/Agent、保留配置/历史与偏好；清理本任务探针/构建/冗余帧。全部结果与未测限制只更新原verification账本。
+- G3执行记录（2026-11-13）：上述实现、隔离工程/数据/双主题实窗验证及最新8262项完整回归完成；[原账本](<../verification.md>)保留逐阶段成功、失败和边界。默认正式包已受控启用，新GUI/Agent加载包内组件；11个真实受管进程身份、五保护文件和恢复账本字节保持，停止后历史及旧包留作回滚。最终回收900004219字节自有编译/探针输出，保留全部107份原始测试记录和源/二进制证据，不改全局自启或快捷方式。
+- 性能结论保持限定：密集历史已补真实选中目标及Stop后至少1秒的原生线程CPU尾段，但真实呈现FPS、顿挫根因和早期两项间歇失败根因仍未证实。本轮功能与验证交付不声称这些问题已修复，也不新增全机采集或降低原动效合同。
+
+## 2026-11-13 — 主机页滚动与指针命中修复（R122）
+
+批准依据：用户报告主机页只有狭窄区域可滚、滚动条无法拖动，以及多个下拉只有局部可点击；用户随后明确批准“开始吧”。本轮沿R121实窗与既有灰阶直角体系走Inherit修复快速路径，仅恢复原有滚动和点击行为，不改变视觉方向、动效、数据、任务控制或权限，不重新生图。
+
+- SCOPE：主机详情整页由一个外层滚动容器承接滚轮，存储卷与网络接口不再嵌套无约束的滚动容器；空白区域也须属于页面的命中范围。保持原布局、间距、文字、图表与存储信息。
+- INPUT：6 DIP滚动条保留既有外观，但轨道与滑块属于客户区，不得落入窗口缩放边缘。下拉按钮须在自身整块矩形内响应，不以图标或文字局部可点代替；未复现的问题不凭猜测改写共享模板，也不关闭动画规避。真实表单已复现内部ToggleButton继承库34 DIP固定宽度：仅该模板命中面以Style={x:Null}隔离尺寸继承，继续使用原有透明模板、绑定、边框和箭头。
+- ACCEPT：先留存修复前的窗口命中、原生WM_NCHITTEST与滚轮路由失败证据；双主题920×580、1152×648、1320×820及当前144 DPI检查真实窗口像素。原生指针逐次验证自有前台窗口，实测存储/网络/空白处滚轮、滑块拖动、下拉不同位置点击和Escape；WPF HitTest、RaiseEvent或UIA Invoke只算工程证据。仅受控更新GUI，不重启Agent、不启停真实任务、不改用户配置与偏好；保留回滚资产并清理自有夹具。分项状态与未测边界只记[原账本](<../verification.md>)。
+- G3执行记录：隔离双主题三档实窗的366次真实输入、稳定态像素复核及最终122项相关回归通过。正式GUI在更新前已退出；仅更新App程序集及清单，核验876项资产、Agent31760/11个真实进程身份与五份输入不变，保留关闭状态及回滚两文件；未重开正式GUI。已清理440855298字节自有构建输出。更严注入器守卫的完整重测、独立下拉弹层截图、正式新GUI启动与真实呈现FPS未验证；不以本项追认或改变既有动效/工具窗后端限制。
+
+## 2026-11-13 — 服务搜索与标题对齐（R123）
+
+用户要求搜索框移至筛选、刷新、设置之后，服务详情右缘与右上角窗口按钮对齐，且整行左右留白相同；点击搜索外部应失焦，空查询应恢复服务。用户确认实施方案后，又明确纠正：**右上角窗口按钮须保持原位置，其它内容向它对齐**，不能反过来移动参照按钮。沿已批准灰阶直角和现有动效走Inherit，不生成新效果图。
+
+- ALN/REU：保留窗口按钮组原右距6 DIP；主标题行两侧留白统一6 DIP，服务详情头及健康区左右也对称采用6 DIP，使操作组、运行时间和健康框右缘与窗口按钮组框右缘同轨。搜索顺序为筛选、刷新、设置、搜索框、窗口按钮；搜索及筛选仅服务页显示，刷新和设置继续跨页可用。图表数据点及绘图内边距不冒称边框，不改资源采样与动效。
+- INT：点击搜索区域外的内容或窗口非客户区时，搜索框失去键盘焦点，不清除输入，不吞掉原点击；焦点归属须保留Ctrl+F、Tab、列表/按钮和既有无新增外框的反馈。搜索图标所在字段区域属于客户区，不能成为拖动标题的空洞。
+- FLOW：搜索框空/纯空白时不按搜索条件过滤；用户明确选择的状态或类型筛选独立保留。真实空数据与非空查询无匹配分开显示，输入后删空应恢复全部符合独立筛选的服务。用户补充原问题是在未使用筛选时输入后删空；未复现前不得声称原因已查明。
+- ACCEPT：双主题最小/常用/宽桌面及既有DPI检查右上角原位置、上下右缘、文字和焦点；隔离窗口实测输入、删除、点击不同区域及Ctrl+F，并检查刷新期间搜索/选择状态。保留最初错误对齐的纠正依据、失败与成功证据，分项写回[原验收账本](<../verification.md>)。正式GUI、Agent及真实任务保持运行，本次不自动更新或重启。
+
+## 2026-11-13 — 搜索恢复与图表交互优化（R124）
+
+用户在修改版实窗检查后补充：搜索删空后需要等几秒列表才恢复；数值图悬停要红色竖线与一位小数，图例放进点击问号出现的提示，多数据线改为不同灰度的实线，主机读/写、收/发文字换成图标，主机图表内容与标题对齐。用户已批准本节对应的交互方案，并明确**主机每张图实际绘图区左缘对齐该图标题图标左缘，右缘对齐右侧读数文字最右侧**；标题和读数不作为移动对象。沿用户提供的运行截图及既有方形灰阶设计走Inherit，不生成新的视觉方向。
+
+- SEARCH：记录从最后退格到TextBox、SearchText、过滤视图、列表容器及首帧可见的时序，先定位延迟根因再修复；空/纯空白搜索即时显示符合既有状态和类型筛选的任务，不等待下一次监测刷新、不自动清除独立筛选。列表和右侧未选中态分别核实，不把其中一者误作另一者；保留非空输入、搜索外失焦、Ctrl+F、Tab和原点击传播。
+- HOVER/DATA：服务CPU/内存及主机CPU/内存/磁盘/网络的趋势图悬停显示红色竖线及对应真实样本或历史桶均值；单线显示该值，多线显示同一时间/桶内各方向值，悬停数值仅显示一位小数及实际单位。真实缺口或缺失方向显示未采样，不跨断点借值、插值或编造连续观测；历史标明桶区间及均值，不能将桶中心写成实际采样时刻。健康时间带悬停显示红线与对应正常/故障/未知状态和时间信息，不编造数值。鼠标离开、图表隐藏、数据清空或切换目标时清掉旧浮层；保留原始数据精度和采样方式。
+- LEGEND/INT：每张有相关图例/来源说明的图在附近提供现有线型家族的问号按钮，点击展开非模态提示，点击外部或Escape关闭；迁入健康三态及双线方向含义，不遮挡曲线或丢失采样、未知及错误说明。可见实时/历史选择及关键错误状态不因迁移图例被掩藏，保留键盘可达、无新增焦点外框和原鼠标点击传播。
+- LINES/ICON：同图多条数据线及对应变化脉冲均为可辨识的深浅灰实线，取代R121的次线虚线规定；原水平参考网格、健康未知斜纹和真实数据变化的局部红退效果不属于需取消的数据虚线。磁盘读/写、网络收/发当前读数用成对方向矢量图标代替文字前缀，并保留可访问名称及提示中的文字解释；不扩展修改无关网络接口列表。
+- ALN：以主机各图标题图标的可见左缘和本卡片右侧读数文字的可见最右缘为左右锚点，调整曲线及其坐标轴实际绘图区；标题与数值原位置不移动，不能用透明控件外框冒充绘图区对齐。短/长数值与标题换行时保持轨道一致，现有窗口按钮位置不变。
+- ACCEPT：针对匹配与不匹配搜索、快速逐字清空、过滤状态、刷新交错及延迟再现分别取证；双主题最小/常用/宽桌面及既有DPI核验主机四图与服务图、问号开合、方向图标、多线灰度、红线和一位小数、真实空数据/缺口/切换目标。自动回归、真实窗口像素及真实鼠标/键盘旅程分别记入[原验收账本](<../verification.md>)，不以合成事件代替原生；真实桌面输入另约用户同意。GUI源码和测试输出单独隔离，不能覆盖当前运行的修改版GUI或已发布包，不擅自停止/重启现有GUI、Agent及真实任务。
+
+## 2026-11-13 — 图例、时段、半秒采样与全局悬停（R125，已批准隔离实施）
+
+用户在R124合成数据实窗检查后补充并批准：图例问号去掉自身圆圈，提示只放图例；删独立“实时”选择及“1秒源”文字；红色悬停竖线进入时伸长、离开时缩短；按钮悬停红底白字、独立有框元素悬停边框变红。用户明确**健康/UPTIME时间带选24小时，资源曲线仍为最近5分钟实时数据**；7天/30天使用对应历史资源范围。用户还明确选择**0.5秒须有后台真实半秒采样**，不能仅把GUI轮询设为0.5秒。沿已有深浅灰阶、矢量图标、直角和红色语义走Inherit，不另造视觉方向。
+
+- LEGEND：仅图例专用问号去圆圈，不全局改其他Help字形；去掉CPU/内存四个没有图例的问号。保留健康未知/正常/故障、磁盘读/写和网络收/发三处可点击问号，弹层按图例内容自适应，不含来源、最早记录或其他解释；方向图标/文字与实际灰度曲线一致。重要读取失败、截断与未知仍在现有状态/说明区域真实可见，不能靠删文案掩盖；保留可访问名称、Escape/外部关闭和原有焦点规则。
+- RANGE：移除主机和服务的独立实时/历史控件，由同一个24小时/7天/30天选择驱动：24小时健康带+最近5分钟真实资源，7天/30天按所选历史范围查询；保留原查询身份、generation/取消、真实数据缺口、截断、按有效样本聚合。资源caption仅去掉“· 1秒源”，保留“最近5分钟”；不误称5分钟资源为24小时资源。
+- HOVER/MOTION：图表红竖线从绘图区顶部向下伸出，离开时缩回，读数本身不拉伸；快速移入移出从当前长度反向、鼠标移动不重播动效，关闭/隐藏/换目标立即清理。减少动画时立即呈现目标态；真实数据变化红退与hover线互不抢时钟或重新投影。
+- HOVER/COLOR：启用的可见按钮、下拉触发器和鼠标悬停菜单项红底白字；已有独立控件框及图表框在指向时既有线条变红，嵌套时只响应最内相关框，不为无框控件增加边框；整窗外壳及纯分隔线不随子控件联动。禁用项不伪装为可执行；离开恢复原选中/焦点/错误状态，不新增焦点外框。使用独立交互色语义，勿全局重定义状态红、选中或普通灰阶；保留深浅主题及可逆动画。
+- REFRESH/DATA（用户已批准隔离实现）：菜单保留暂停并提供0.5/1/5/10秒，默认1秒、当前GUI会话内选择；四档只改变GUI快照及实时图读取/呈现频率。Agent固定以500ms为目标调度真实主机/进程资源采样，GUI关闭/隐藏/暂停、或选择1/5/10秒也继续；不得以每0.5秒重复读取1秒缓存冒称半秒采样。健康探测、恢复证据和持久checkpoint仍按独立10秒计划槽推进，不因资源档位改变，漏槽不补造；慢健康探测和慢持久写不能长时间独占资源采样节拍，工作须有界、单写者、核对配置代际并在退出时真正回收。Windows调度或采集耗时导致漏点时保留真实CapturedAt、未知和缺口，不承诺硬实时。
+  - 内存最近5分钟目标至多601个真实半秒点，保留原32MiB估算载荷和100000任务行双重压力上限；用户明确选择不扩容预算，压力/抖动导致更短留存时显式截断与实际最早记录，不承诺任意任务规模完整5分钟。历史持久仍10秒源、原30天/64MiB先到先裁及旧档兼容，不将半秒原点伪装成历史秒级采样。
+  - 新资源协议显式表达毫秒采样并请求最多601真实点；既有全局IPC版本/命名不因资源字段随意升级。旧GUI连接新Agent保留可解释的1秒真实兼容视图并保留缺口/身份边界；新GUI遇旧Agent明确表示半秒能力未生效，仅对明确不支持作兼容，不将畸形/权限/超时等伪装成成功。响应大小上限、身份/顺序/值域校验和截断语义保留。
+  - 隔离自有Agent/临时root测试真实半秒点、慢源、健康/恢复、旧新协议及内存压力；本授权不含正式包部署或现有Agent替换/重启。正式生效前另逐次确认目标、停机和回滚，并如实告知Agent重启会清空实时内存环。
+- ACCEPT：在独立root和隔离输出验证时段往返/旧回复、所有图例与状态、启用/禁用/选中/按下和深浅主题悬停中间帧、已有边框鼠标命中、红线伸缩/反向/隐藏/减少动画；原生窗口与键鼠旅程单独记录在[原验收账本](<../verification.md>)。真实Agent与受管任务保持运行，不部署、不重启，测试资源完成后回收。
+
+## 2026-11-16 — 图表左到右绘制动效、全局对齐居中与红白交互统一（R126）
+
+针对用户反馈的图表切换丢动画/假红扫光、多处对齐与居中偏差、多余截断文案及灰底 hover/active 不一致，沿已有方形线框与无外框（zero focus outline / ring）设计系统走 Inherit 路径收敛如下：
+
+- PLOT/SWEEP：[共享绘图控件](<../src/SystemAutorun.App/Controls/DashboardPlot.cs>)与[绘制状态](<../src/SystemAutorun.App/Controls/DashboardPlot.Pulse.cs>)移除 `_sweepLayer` 底部红色扫光条，改为保持刻度、网格与时间坐标静止的真实左到右渐进裁剪绘制（`SweepProgress` `0 → 1`，周期 `620 ms`，`QuadraticEase.EaseOut`，绘制前沿跟随 `2.8×2.8` 红笔尖点，完成后移除裁剪且 `Clip == null`）。经由 `_awaitingSeriesDraw` 状态（在不可见或[页面切回/快速折返](<../src/SystemAutorun.App/Controls/PresencePanel.cs>)与[LineMotion](<../src/SystemAutorun.App/Services/LineMotion.cs>)入场时重新布防，等待异步数据到达再触发，相同 `ScaleKey` 下的 0.5/1/10 秒轮询不重播）。
+- COPY：精简[历史提示](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.History.cs>)与[资源副标题](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.Resources.cs>)，移除常规 UI 展示的 `"历史截断..."`、`"记录截断..."`、`"历史记录不完整"`、`"资源记录不完整"` 及 `" · 10秒源 · 有效样本均值"` 多余说明，仅保留真实读取失败（`"历史读取失败"` / `"资源轨迹不可用"`）与持久不可用警告。
+- ALIGN/CENTER：顶栏品牌图标、侧栏折叠按钮与侧栏列表项左边界统一 `18 DIP`；服务页详情头、健康框外框左缘与 `CPU`/`内存` 标签图标统一 `20 DIP` 左内距，操作组、健康框、运行时间与服务曲线绘图右缘对齐右上角窗口按钮外框（`6 DIP`），主机四图保留 R124 对称 2×2 布局。修正 `?`（`LegendHelp`）图标视觉框位与 `15×15` 比例居中，并将顶栏与异常页搜索框、`ComboBox`、`CheckBox`、`DataGridCell` 及弹窗文本/图标垂直居中。
+- HOVER/ACTIVE：在[语义色板](<../src/SystemAutorun.App/Themes/Semantics.xaml>)、[基础色](<../src/SystemAutorun.App/Themes/Primitives.xaml>)、[浅色覆写](<../src/SystemAutorun.App/Services/ThemeService.cs>)与[状态着色](<../src/SystemAutorun.App/Services/ColorStateAssist.cs>)、按钮/菜单/下拉/列表/表格样式及弹窗中统一使用高对比红/白交互态（`InteractionHover` / `InteractionActive` / `InteractionActiveHover` 配 `#FFFFFF` `InteractionOnHover` / `InteractionOnActive`），消除灰色交互残留及选中行内黄/红字体撞色；保留 `Semantic.Brush.Selection` 仅用于健康带未知态斜纹底色，并确保 `Expander`（`CompactDisclosureHeader` `ToggleButton`）在展开静止透明态下维持高对比文字前景色。
+
+## 2026-11-16 — 红色图表投影渐变、全端 6 DIP 边距（含 TextBox 悬停修补）、后置入场绘图与柔和深色（R127）
+
+针对 R126 桌面实测与对比截图反馈，继续沿既定设计系统收敛五项交互与视觉质量改进：
+
+- PLOT/PROJECTION：[共享绘图控件](<../src/SystemAutorun.App/Controls/DashboardPlot.cs>)中主/副趋势线下方面积投射（`CreateAreaBrush`）改用红色渐变（主曲线 `Semantic.Brush.StatusFailed` `0.22 → 0.01`，双线副曲线叠加 `0.09 → 0.0`），同时保持主/副实线与圆润字重对比可辨，并按颜色键缓存冻结画笔与渐变以减少帧内分配。
+- PLOT/SEQUENCE：[LineMotion](<../src/SystemAutorun.App/Services/LineMotion.cs>) 将 `DashboardPlot` 入场延迟调整为 `PlotEntranceDelayMilliseconds = 420 ms + min(120, region*0.3)`（[PresencePanel](<../src/SystemAutorun.App/Controls/PresencePanel.cs>) 快速折返设 `120 ms`），等待边框生长与标题/数值揭示接近收束后再以 `60 fps` 节奏左到右绘制数据；等待期间通过 `EffectiveSweepProgress`（`0`）仅保留静态网格/刻度与轴标、跳过零宽系列几何与填充计算，消除同时开跑造成的视觉拥挤与卡顿感。
+- SPACING/EDGE & TEXTBOX：以窗口右侧边框标准 `6 DIP`（`Primitive.Space.PageX = 6`）拉齐[主窗体](<../src/SystemAutorun.App/MainWindow.xaml>)、[看板样式](<../src/SystemAutorun.App/Themes/Dashboard.xaml>)、[主机四图](<../src/SystemAutorun.App/Controls/HostResourceCharts.xaml>)、[监控视图](<../src/SystemAutorun.App/Controls/MonitoringView.xaml>)、[基础组件](<../src/SystemAutorun.App/Themes/Components.xaml>)（`SidebarAssist.CollapsedWidth = 45`）及八类[弹窗 XAML](<../src/SystemAutorun.App/Dialogs/>) 的外缘与分隔线边距（服务详情头、健康框、服务 CPU/内存图左右留白、`HostHeader`/`HostCharts`/异常工具栏与详情面板、表单页眉页脚与内容区）；同时为 `TextBox` 替换为独立 `OuterBorder + PART_ContentHost` 控件模板（保留 `FocusVisualStyle="{x:Null}"` 无外框约束），彻底消除 `MaterialDesignTextBox` 内部触发器在悬停/聚焦时把底线覆写为黑色的问题。
+- BACKDROP：[DialogBackdrop](<../src/SystemAutorun.App/Controls/DialogBackdrop.cs>) 48 DIP 对角线格改用红色画笔（`Semantic.Brush.InteractionHover`，纹理透明度 `0.15`），漂移周期由 `14 s` 减半至 `7 s`（`DriftDuration`、`DesiredFrameRate = 60`），背景速度翻倍。
+- DARK/CONTRAST：适当提亮深色底面并消除 `#FFFFFF`/`#FAFAFA` 纯正白（[Primitives.xaml](<../src/SystemAutorun.App/Themes/Primitives.xaml>)：`WindowBackground #141417`、`TerminalBackground #111114`、`SurfacePrimary #18181C`、`SurfaceInset #1C1C21`、`Selection #202026`、`SurfaceHover #26262D`、`BorderSubtle #2B2B33`、`BorderStrong #3B3B45`、`HistoryHealthy #43434E`、`TextPrimary #D4D4DC`、`TextBright #E0E0E6`、`InteractionFocus #DCDCE2`、`OnStatus / InteractionOnHover / InteractionOnActive #E6E6EC` 配深色红 `#C41740` / `#A61338`，满足按钮 `≥ 4.5:1` 文本可读对比）；浅色模式覆写保持不变。
+
+## 2026-11-16 — 红线曲线、系统图标、服务头部重构、切换延迟绘制与灰红选中态（R128）
+
+针对 R128 桌面实测与对比截图反馈，在既有设计系统基础上完成六项修正与重构：
+
+- SPACING：将 R127 全端 `6 DIP` 收回至仅保留[服务页右侧详情区](<../src/SystemAutorun.App/MainWindow.xaml>)（`ServiceHeader Padding="6,8,6,8"`、可用率健康区 `Margin="6,10,6,10"` / `Padding="6,8,6,0"`、重构后服务 `CPU`/`内存` 卡片 `Padding="6,10,6,8"`），恢复顶栏（`18,0,6,0`、`ViewTabs Margin="28,0,0,0"`）、[侧栏折叠宽度](<../src/SystemAutorun.App/Services/SidebarAssist.cs>)（`CollapsedWidth = 52`）、列表行（`DashboardSequenceItem 18,9`、`HostTabItemStyle 18,9`、`ResourceRowStyle 20,12`）、[主机四图](<../src/SystemAutorun.App/Controls/HostResourceCharts.xaml>)（`20,0` / `20,16`）、[监控与异常日志](<../src/SystemAutorun.App/Controls/MonitoringView.xaml>)、[基础组件](<../src/SystemAutorun.App/Themes/Components.xaml>)及全部[工具弹窗](<../src/SystemAutorun.App/Dialogs/>)既有舒展边距，同时完整保留 R127 `TextBox` 独立 `OuterBorder + PART_ContentHost` 无黑底线悬停模板。
+- CHART/STROKE：[共享绘图控件](<../src/SystemAutorun.App/Controls/DashboardPlot.cs>) 将 `DrawTrend` 主曲线改为实线红（`Semantic.Brush.StatusFailed` `#E11D48` / `#BE123C`），双线副曲线改用可区分次红（新增 `Semantic.Brush.ChartSecondary` `#9E334D` / `#E16479`），配合红色面积渐变投射；[图例弹层](<../src/SystemAutorun.App/Controls/PlotLegendHelp.xaml>)与[主机四图](<../src/SystemAutorun.App/Controls/HostResourceCharts.xaml>) `Inbound`/`Outbound` 图标同步改用对应红/次红语义色；[DrawTrendPulse](<../src/SystemAutorun.App/Controls/DashboardPlot.Pulse.cs>) 变更段脉冲突出线宽调至 `2.15`（单点 `3.2×3.2`）后自然淡回。
+- HOST/HEADER：[矢量图标族](<../src/SystemAutorun.App/Controls/LineIcon.cs>) 新增 `Linux` 与 `MacOs` 轮廓图标（配圆角线端与连接），[视图模型](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.Dashboard.cs>) 新增 `HostIcon`（`ResolveHostIcon(HostOs, SelectedHostTab?.Platform)`），在 [MonitoringView](<../src/SystemAutorun.App/Controls/MonitoringView.xaml>) 以 `38×38` 边框展示 `20×20` 对应系统图标，并收紧 `HostName`（`FontSize="19" LineHeight="22" LineStackingStrategy="BlockLineHeight"`）与 `HostOs`（`Margin="0,1,0,0"`）垂直间距。
+- SERVICE/METRICS：取消[主窗体](<../src/SystemAutorun.App/MainWindow.xaml>) 服务 `CPU`/`内存` 左侧空旷的 `188 DIP` 标签列，改为上方紧凑 `MetricHeadingPanel`（`28×28` 线框图标 + 指标标题 + `PID` / `物理内存 xx.x%` 精简元信息 + 右对齐当前读数）配下方拉满全宽的 `DashboardPlot`（`PlotLeftInset="0.5" PlotRightInset="0.5"`）。
+- PLOT/TAB-DELAY：在 [DashboardPlot.Pulse.cs](<../src/SystemAutorun.App/Controls/DashboardPlot.Pulse.cs>) 引入入场截止窗口（`_entranceDelayMs` / `_entranceStartTimestamp` / `CurrentRemainingEntranceDelayMs()`），使标签页切换后同步触发的 `TickDashboard()` `ScaleKey` 变化不再把 `LineMotion` 设置的 `420+ ms` 延迟清零，且 `RequestEntranceSweep` 主动取消并重排由 `IsVisibleChanged` 抢先触发的 `0 ms` 扫绘；同步在 [LineMotion.cs](<../src/SystemAutorun.App/Services/LineMotion.cs>) 允许对滚动视口外的折叠区子孙 `DashboardPlot`（如主机磁盘/网络图）继续下发后置入场扫绘。
+- STATE/ACTIVE-VS-HOVER：区分选中静止（Active）与悬停/按下（Hover/Pressed）色彩契约：Active 底面采用中性灰（`InteractionActive` Dark `#24242B` / Light `#E4E4E8`）配清晰红色文字/图标（`InteractionOnActive` Dark `#F84B68` `4.56:1` / Light `#BE123C` `4.87:1`）；Hover 与 Pressed 保留高对比红底（`InteractionHover` / `InteractionActiveHover`）配柔白/纯白文字（`InteractionOnHover` Dark `#E6E6EC` / Light `#FFFFFF`）；并同步在 [ColorStateAssist.cs](<../src/SystemAutorun.App/Services/ColorStateAssist.cs>)、[Dashboard.xaml](<../src/SystemAutorun.App/Themes/Dashboard.xaml>)、[Components.xaml](<../src/SystemAutorun.App/Themes/Components.xaml>)（含 `CheckBox`、`MenuItem` 勾选符号与 `IsSubmenuOpen`、`ComboBox.IsDropDownOpen`、`TextBox` 选区色）、`MonitoringView`（含 `CRITICAL` 徽章）与各弹窗行样式中保持悬停/选中叠加时白字优先。
+
+## 2026-11-16 — 远程主机常驻流式采集、历史与无闪烁同频刷新（R129）
+
+针对用户实测添加远程主机后 CPU/内存/磁盘/网络与四宫格曲线空白（`--` / `"此目标无资源轨迹"`）、刷新频率脱离本机四档以及每次轮询整页闪烁的问题，沿 R128 已批准的方形红白界面走 Inherit 路径补齐端到端数据链路：
+
+- TELEMETRY/SSH-STREAM：[RemoteHostStatusSnapshot](<../src/SystemAutorun.Core/Models/MonitoringSnapshots.cs>) 扩展磁盘读写 `B/s`、网络收发 `B/s`、分网卡列表与 `MemoryUsedBytes`；[SshRemoteHostReader](<../src/SystemAutorun.Windows/Health/SshRemoteHostReader.cs>) 实现 `IRemoteHostStreamSource`（Linux 持续读 `/proc/stat`、`/proc/meminfo`、`/proc/diskstats`、`/proc/net/dev` 与真实非回环挂载卷，Windows 持续采样性能计数器与接口统计），在 SSH 握手验证成功后立即释放本地输入文件租约并通过最小 RTT 单调对齐样本时间戳。
+- AGENT/PERSISTENCE：新增 [AgentRemoteHostMonitor](<../src/SystemAutorun.Agent/AgentRemoteHostMonitor.cs>) 为每台已启用远程主机在后台常驻维持单条只读 SSH 流（指数退避重连与按需唤醒，上限 32 台），同步写入每主机隔离的 5 分钟 `500 ms` 实时内存环（[ResourceHistoryBuffer](<../src/SystemAutorun.Core/Monitoring/ResourceHistoryBuffer.cs>)）并在 [AgentMonitor](<../src/SystemAutorun.Agent/AgentMonitor.cs>) 的 10 秒持久帧中记录 `MonitoringHistoryFrame.RemoteHosts`（[MonitoringHistoryStore](<../src/SystemAutorun.Core/Monitoring/MonitoringHistoryStore.cs>)）。新增 [MonitoringRemoteHostIdentity](<../src/SystemAutorun.Core/Monitoring/MonitoringRemoteHostIdentity.cs>)，显示名称修改保留历史，主机/端口/用户名/凭证或平台变更则严格隔离旧轨迹以防 ABA 串台。
+- APP/CADENCE & ZERO-FLASH：[MainWindowViewModel](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.cs>)、[监控扩展](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.Monitoring.cs>) 与 [资源视图模型](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.Resources.cs>) 解锁远程主机四图读数与 `24小时`（最近5分钟）/ `7天` / `30天` 查询（`RemoteHostId`），让 `RefreshLiveAsync` 与 `UpdateResourceTrends` 按同一套 `0.5s / 1s / 5s / 10s` 档位从后台内存缓存无感读取；在已在线主机的常规刷新前不再调用 `SetRemoteUnavailable` 清空名称/状态/磁盘与网卡列表，消除 `HostStatusAvailable` `false -> true` 抖动并对 `Networks` 改为原位 `Reconcile`，同时保留首次选中等待、配置禁用、断线离线与 30 秒过期清零语义。
+- PREWARM & IN-PLACE RELEASE（R129b）：[AgentMonitoringSnapshot](<../src/SystemAutorun.Core/Models/AgentMonitoringSnapshot.cs>) 附带 `AgentRemoteHostMonitor.GetFreshSnapshots` 最近在线快照以便 GUI 启动后尚未点进远程主机前即预热侧栏与切页状态，[OnSelectedHostTabChanged](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.cs#L717-L735>) 优先复用尚在新鲜窗内的缓存读数消除切页骨架闪屏；[SshRemoteHostReader](<../src/SystemAutorun.Windows/Health/SshRemoteHostReader.cs>) 对 Top 32 活跃 Linux 网卡按 `(hasIp, name)` 稳定排序；[publish-native.ps1](<../scripts/publish-native.ps1>) 改为备份至 `artifacts\rollback\win-x64.previous` 并原地同步 `artifacts\publish\win-x64`，防止文件管理器跟随重命名后的回滚目录。
+
+## 2026-11-17 — 远程头精简、内存占比、实时故障与起停联动、四档窗口重构及历史缓存（R130）
+
+沿既有方形红白线条设计系统走 Inherit 路径收敛七项功能与细节改进：
+
+- HOST/HEADER & MEMORY：在 [MonitoringView.xaml](<../src/SystemAutorun.App/Controls/MonitoringView.xaml>) 移除计算机名/系统版本下方 `SSH · ...` 次行；在 [HostResourceCharts.xaml](<../src/SystemAutorun.App/Controls/HostResourceCharts.xaml>) 与 [MainWindowViewModel.Monitoring.cs](<../src/SystemAutorun.App/ViewModels/MainWindowViewModel.Monitoring.cs>) 将主机内存大数字改为占用百分比（`HostMemoryPercentText`），底部保持实测已用/总量容量（服务页内存读数继续保持容量 + 副标题物理内存百分比）。
+- FAULT/LIVE-HEALTH & POWER：[AgentCommandDispatcher](<../src/SystemAutorun.Agent/AgentCommandDispatcher.cs>) 与 [AgentMonitor.Concurrent](<../src/SystemAutorun.Agent/AgentMonitor.Concurrent.cs>) 在控服务命令与 500 ms 进程存活跳变后立即调度健康复核与持久化，且启动首轮确保先完成主机采样再写首个持久帧；[DashboardPlot](<../src/SystemAutorun.App/Controls/DashboardPlot.cs>) / [DashboardPlot.Pulse](<../src/SystemAutorun.App/Controls/DashboardPlot.Pulse.cs>) / [DashboardPlot.Hover](<../src/SystemAutorun.App/Controls/DashboardPlot.Hover.cs>) 对可用率栏内存在未被后续恢复覆盖的 `"failed"` 区间即刻整格全红并悬停报 `"故障"`。[ServiceActions](<../src/SystemAutorun.App/MainWindow.xaml>) 主启停按钮随 `SelectedTask.Status == "OK"` 动态切换实心 `Stop`（停止服务）与实心 `Play`（启动服务），更多菜单补充 `"停止"`。
+- ALIGN & AXIS：统一 [MainWindow.xaml](<../src/SystemAutorun.App/MainWindow.xaml>) 服务详情头 28×28 图标栏与下层 `可用率`/`CPU`/`内存` 左缘对齐、表格/元信息采用 `Semantic.Font.Interface` + `Tabular` 等宽数字对齐，修复 `LegendHelp` `?` 光学居中；移除趋势图右下角 `{start} — {end}` 时间段文字。
+- WINDOW & CACHE：将主机与服务时间菜单改为 `实时`（`0`，可用率与资源同步 5 分钟）/ `最近1天` / `最近1周` / `最近1月` 四档可勾选项；[DashboardPlot](<../src/SystemAutorun.App/Controls/DashboardPlot.cs>) 新增 `IsLoading` 状态与红色往复加载扫描条；[MonitoringHistoryStore](<../src/SystemAutorun.Core/Monitoring/MonitoringHistoryStore.cs>) 引入 `512` 段 SHA-256 校验内存段缓存，大幅降低多周/全月切换时的重复磁盘 JSONL 解析耗时。

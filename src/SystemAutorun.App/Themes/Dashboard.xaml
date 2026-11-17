@@ -1,0 +1,227 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+                    xmlns:services="clr-namespace:SystemAutorun.App.Services">
+    <GridLength x:Key="Dashboard.Metric.ReadoutWidth">188</GridLength>
+    <Style x:Key="DashboardIconButton" TargetType="Button">
+        <Setter Property="Width" Value="40" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="8" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.IconRest}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="services:ColorStateAssist.Role" Value="Icon" />
+        <Setter Property="services:ColorStateAssist.HoverAction" Value="True" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Surface" services:SurfaceMotion.Fill="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsEnabled" Value="True" /><Condition Property="IsMouseOver" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </MultiTrigger>
+                        <Trigger Property="Tag">
+                            <Trigger.Value><sys:Boolean>True</sys:Boolean></Trigger.Value>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActive}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="Tag"><Condition.Value><sys:Boolean>True</sys:Boolean></Condition.Value></Condition>
+                                <Condition Property="IsEnabled" Value="True" />
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsEnabled" Value="True" /><Condition Property="IsPressed" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextDisabled}" />
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="Transparent" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!-- R105 main-window view tabs: the chosen tab is the active red/white surface
+         (INT-3a); no indicator bar, underline or outline. Focus brightens text via the Foreground role. -->
+    <Style x:Key="DashboardTabButton" TargetType="Button" BasedOn="{StaticResource DashboardIconButton}">
+        <Setter Property="Width" Value="Auto" />
+        <Setter Property="MinWidth" Value="64" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Padding" Value="14,0,14,2" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="services:ColorStateAssist.Role" Value="Foreground" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Surface" services:SurfaceMotion.Fill="Transparent" SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsEnabled" Value="True" /><Condition Property="IsMouseOver" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </MultiTrigger>
+                        <Trigger Property="Tag">
+                            <Trigger.Value><sys:Boolean>True</sys:Boolean></Trigger.Value>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActive}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="Tag"><Condition.Value><sys:Boolean>True</sys:Boolean></Condition.Value></Condition>
+                                <Condition Property="IsEnabled" Value="True" />
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsEnabled" Value="True" /><Condition Property="IsPressed" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="DashboardRangeButton" TargetType="Button" BasedOn="{StaticResource DashboardIconButton}">
+        <Setter Property="Width" Value="Auto" />
+        <Setter Property="MinWidth" Value="58" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="services:ColorStateAssist.Role" Value="Toggle" />
+        <!-- Active and hovered states both use unified red/white semantics. -->
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Surface" services:SurfaceMotion.Fill="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsEnabled" Value="True" /><Condition Property="IsMouseOver" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </MultiTrigger>
+                        <Trigger Property="Tag">
+                            <Trigger.Value><sys:Boolean>True</sys:Boolean></Trigger.Value>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActive}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="Tag"><Condition.Value><sys:Boolean>True</sys:Boolean></Condition.Value></Condition>
+                                <Condition Property="IsEnabled" Value="True" />
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsEnabled" Value="True" /><Condition Property="IsPressed" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Surface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="DashboardHeaderChoice" TargetType="Button" BasedOn="{StaticResource DashboardRangeButton}">
+        <Setter Property="Height" Value="30" /><Setter Property="MinWidth" Value="68" /><Setter Property="Padding" Value="8,0,8,1" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style x:Key="MetricCaptionStyle" TargetType="TextBlock">
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextSecondary}" />
+    </Style>
+    <Style x:Key="MetricDetailStyle" TargetType="TextBlock">
+        <Setter Property="services:LineMotion.Stage" Value="Readout" />
+        <Setter Property="Margin" Value="0,10,0,0" />
+        <Setter Property="FontFamily" Value="{StaticResource Semantic.Font.Monospace}" />
+        <Setter Property="FontSize" Value="{StaticResource Primitive.Font.12}" />
+        <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextHint}" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style x:Key="DashboardSequenceItem" TargetType="ListBoxItem">
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Padding" Value="18,9" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.RowRest}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderSubtle}" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="services:ColorStateAssist.Role" Value="Row" />
+        <Setter Property="services:ColorStateAssist.HoverAction" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Row" services:SurfaceMotion.Fill="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,0,0,1">
+                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Row" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Row" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActive}" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions><Condition Property="IsSelected" Value="True" /><Condition Property="IsMouseOver" Value="True" /></MultiTrigger.Conditions>
+                            <Setter TargetName="Row" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="DashboardServiceItem" TargetType="ListBoxItem" BasedOn="{StaticResource DashboardSequenceItem}">
+        <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+        <Setter Property="AutomationProperties.HelpText" Value="{Binding ReasonLabel}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Enabled}" Value="False">
+                <Setter Property="services:ColorStateAssist.IsMuted" Value="True" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="DashboardReadout" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Semantic.Font.Monospace}" />
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+    </Style>
+    <Style x:Key="DashboardMetricCell" TargetType="Border">
+        <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="0,0,1,1" />
+        <Setter Property="MinHeight" Value="84" />
+    </Style>
+    <Style x:Key="DashboardMetricLabel" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Semantic.Brush.SurfacePrimary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="0,0,1,0" />
+        <Setter Property="Padding" Value="20,10" />
+    </Style>
+</ResourceDictionary>

@@ -1,18 +1,23 @@
 <Application x:Class="SystemAutorun.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:services="clr-namespace:SystemAutorun.App.Services"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <ResourceDictionary>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+            <services:StatusFilterActiveConverter x:Key="StatusFilterActiveConverter" />
             <ResourceDictionary.MergedDictionaries>
-                <ui:ThemesDictionary Theme="Dark" />
-                <ui:ControlsDictionary />
+                <materialDesign:CustomColorTheme BaseTheme="Dark"
+                                                 PrimaryColor="#A1A1AA"
+                                                 SecondaryColor="#E4E4E7" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign2.Defaults.xaml" />
                 <ResourceDictionary Source="Themes/Primitives.xaml" />
                 <ResourceDictionary Source="Themes/Semantics.xaml" />
-                <ResourceDictionary Source="Themes/WpfUiOverrides.xaml" />
                 <ResourceDictionary Source="Themes/Components.xaml" />
+                <ResourceDictionary Source="Themes/Dashboard.xaml" />
+                <ResourceDictionary Source="Themes/Disclosure.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

@@ -3,7 +3,9 @@
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>SystemAutorun</AssemblyName>
+    <AssemblyName>Vigil</AssemblyName>
+    <Product>Vigil</Product>
+    <AssemblyTitle>Vigil</AssemblyTitle>
     <RootNamespace>SystemAutorun.App</RootNamespace>
     <ApplicationIcon>..\..\icon.ico</ApplicationIcon>
   </PropertyGroup>
@@ -15,7 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <PackageReference Include="MaterialDesignThemes" Version="5.3.2" />
   </ItemGroup>
 
 </Project>

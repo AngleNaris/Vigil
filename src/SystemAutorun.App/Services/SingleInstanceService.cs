@@ -18,7 +18,7 @@ internal sealed class SingleInstanceService : IAsyncDisposable
     internal SingleInstanceService(string? instanceName = null)
     {
         var sid = WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
-        instanceName ??= $"SystemAutorun.App.{sid}";
+        instanceName ??= $"Vigil.App.{sid}";
         _pipeName = instanceName.Replace('-', '_');
         _instanceHandle = new EventWaitHandle(
             false,

@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <AssemblyName>SystemAutorun.Agent</AssemblyName>
+    <AssemblyName>Vigil.Agent</AssemblyName>
+    <Product>Vigil Agent</Product>
+    <AssemblyTitle>Vigil.Agent</AssemblyTitle>
     <RootNamespace>SystemAutorun.Agent</RootNamespace>
     <ApplicationIcon>..\..\icon.ico</ApplicationIcon>
   </PropertyGroup>

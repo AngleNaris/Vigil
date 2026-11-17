@@ -1,6 +1,4 @@
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -8,10 +6,11 @@ using Microsoft.Win32;
 using SystemAutorun.Core.Configuration;
 using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Core.Models;
+using SystemAutorun.Windows.Health;
 
 namespace SystemAutorun.Windows.Startup;
 
-public sealed class StartupManager : IDisposable
+public sealed partial class StartupManager : IDisposable
 {
     public const string UserStartupSource = "Startup";
     public const string CommonStartupSource = "Common Startup";
@@ -19,7 +18,6 @@ public sealed class StartupManager : IDisposable
     public const string HklmRunSource = "HKLM";
     public const string HklmWow64RunSource = "HKLM-WOW64";
 
-    private const string RunSubKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -29,15 +27,20 @@ public sealed class StartupManager : IDisposable
     private readonly ProjectPaths _paths;
     private readonly ConfigurationLoader _configurationLoader;
     private readonly string _transactionPath;
-    private readonly Mutex _mutationMutex;
+    private readonly IStartupNativeAccess _native;
+    private readonly IStartupMutationOperations _operations;
 
     public StartupManager(ProjectPaths paths, ConfigurationLoader? configurationLoader = null)
+        : this(paths, WindowsStartupNativeAccess.Instance, configurationLoader) { }
+
+    internal StartupManager(ProjectPaths paths, IStartupNativeAccess native, ConfigurationLoader? configurationLoader = null,
+        IStartupMutationOperations? operations = null)
     {
         _paths = paths;
+        _native = native ?? throw new ArgumentNullException(nameof(native));
+        _operations = operations ?? StartupMutationOperations.Instance;
         _configurationLoader = configurationLoader ?? new ConfigurationLoader();
         _transactionPath = paths.StartupBackupPath + ".transaction";
-        var mutexName = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(paths.RootDirectory)))[..20];
-        _mutationMutex = new Mutex(false, $"Local\\SystemAutorun.Startup.{mutexName}");
     }
 
     public async Task<StartupManagementSnapshot> GetSnapshotAsync(
@@ -45,19 +48,7 @@ public sealed class StartupManager : IDisposable
     {
         var configuration = await _configurationLoader.LoadAsync(_paths.RootDirectory, cancellationToken)
             .ConfigureAwait(false);
-        var elevated = IsAdministrator();
-        var active = ScanActiveEntries(configuration.Tasks, elevated);
-        var backups = await ReadBackupsAsync(cancellationToken).ConfigureAwait(false);
-        var disabled = backups
-            .Where(record => record.RestoredAt is null)
-            .Select(record => ToDisabledEntry(record, elevated))
-            .ToArray();
-        return new StartupManagementSnapshot(
-            active.Concat(disabled).ToArray(),
-            active.Count,
-            active.Count(entry => entry.IsManaged),
-            disabled.Length,
-            elevated);
+        return CaptureInventory(configuration, new StartupListQuery(), cancellationToken);
     }
 
     public async Task<StartupMutationResult> DisableAsync(
@@ -66,11 +57,11 @@ public sealed class StartupManager : IDisposable
         string? origin,
         CancellationToken cancellationToken = default)
     {
-        using var lease = AcquireMutationLock();
+        using var lease = await StartupMutationLease.AcquireAsync(_paths, cancellationToken).ConfigureAwait(false);
         EnsureNoUnresolvedTransaction();
         var configuration = await _configurationLoader.LoadAsync(_paths.RootDirectory, cancellationToken)
             .ConfigureAwait(false);
-        var matches = ScanActiveEntries(configuration.Tasks, IsAdministrator())
+        var matches = CaptureInventory(configuration, new StartupListQuery(State: "active"), cancellationToken).Entries
             .Where(entry => string.Equals(entry.Source, source, StringComparison.Ordinal)
                 && string.Equals(entry.Name, name, StringComparison.Ordinal))
             .Where(entry => string.IsNullOrWhiteSpace(origin)
@@ -88,6 +79,7 @@ public sealed class StartupManager : IDisposable
 
         var entry = matches[0];
         EnsureCanModify(entry.Source);
+        var registryKind = IsShortcutSource(entry.Source) ? (RegistryValueKind?)null : CaptureRegistryKind(entry);
         var backups = (await ReadBackupsAsync(cancellationToken).ConfigureAwait(false)).ToList();
         var backupId = Guid.NewGuid().ToString("N");
         var backupPath = IsShortcutSource(entry.Source)
@@ -97,230 +89,141 @@ public sealed class StartupManager : IDisposable
         {
             Id = backupId,
             Action = "disable",
+            Disposition = "disabled",
             DisabledAt = DateTimeOffset.Now,
             Source = entry.Source,
             Name = entry.Name,
             RawCommand = entry.RawCommand,
+            RegistryKind = registryKind,
             Target = entry.Target,
             Arguments = entry.Arguments,
             WorkingDirectory = entry.WorkingDirectory,
             Origin = entry.Origin,
             BackupPath = backupPath,
         };
-        await WriteTransactionAsync(new StartupTransaction("disable", record), cancellationToken)
-            .ConfigureAwait(false);
-
-        var mutationApplied = false;
-        try
-        {
-            DisableSystemEntry(record);
-            mutationApplied = true;
-            backups.Add(record);
-            await WriteBackupsAsync(backups, cancellationToken).ConfigureAwait(false);
-            DeleteTransaction();
-            return new StartupMutationResult(true, "disable", entry.Source, entry.Name, backupId);
-        }
-        catch
-        {
-            if (mutationApplied)
-            {
-                RollbackDisable(record);
-            }
-
-            DeleteTransaction();
-            throw;
-        }
+        using var shortcutPaths = OpenShortcutPaths(record, configuration.Settings.BackupDirectory, restoring: false);
+        return await ExecuteMutationAsync("disable", record, backups, cancellationToken, shortcutPaths).ConfigureAwait(false);
     }
 
     public async Task<StartupMutationResult> RestoreAsync(
         string backupId,
         CancellationToken cancellationToken = default)
     {
-        using var lease = AcquireMutationLock();
+        using var lease = await StartupMutationLease.AcquireAsync(_paths, cancellationToken).ConfigureAwait(false);
         EnsureNoUnresolvedTransaction();
         var backups = (await ReadBackupsAsync(cancellationToken).ConfigureAwait(false)).ToList();
-        var record = backups.FirstOrDefault(item =>
-            string.Equals(item.Id, backupId, StringComparison.OrdinalIgnoreCase))
-            ?? throw new KeyNotFoundException($"Startup backup not found: {backupId}");
-        if (record.RestoredAt is not null)
-        {
-            throw new InvalidOperationException($"Startup backup is already restored: {backupId}");
-        }
+        var matches = backups.Where(item => item is not null && string.Equals(item.Id, backupId, StringComparison.OrdinalIgnoreCase)).Take(2).ToArray();
+        if (matches.Length > 1) { throw new InvalidOperationException("The selected startup backup ID is ambiguous."); }
+        var record = matches.FirstOrDefault() ?? throw new KeyNotFoundException($"Startup backup not found: {backupId}");
+        if (record.EffectiveDisposition != "disabled")
+        { throw new InvalidOperationException($"Startup backup is already {record.EffectiveDisposition}: {backupId}"); }
 
         EnsureCanModify(record.Source);
-        await WriteTransactionAsync(new StartupTransaction("restore", record), cancellationToken)
-            .ConfigureAwait(false);
-        var mutationApplied = false;
+        if (!string.Equals(record.Action, "disable", StringComparison.Ordinal))
+        { throw new InvalidOperationException("Only disabled startup backups can be restored."); }
+        if (!IsShortcutSource(record.Source)) { _ = BackupRegistryKind(record); }
+        var backupDirectory = IsShortcutSource(record.Source)
+            ? (await _configurationLoader.LoadAsync(_paths.RootDirectory, cancellationToken).ConfigureAwait(false)).Settings.BackupDirectory
+            : string.Empty;
+        using var shortcutPaths = OpenShortcutPaths(record, backupDirectory, restoring: true);
+        return await ExecuteMutationAsync("restore", record, backups, cancellationToken, shortcutPaths).ConfigureAwait(false);
+    }
+
+    private StartupShortcutPathLease? OpenShortcutPaths(StartupBackupRecord record, string backupDirectory, bool restoring) =>
+        !IsShortcutSource(record.Source) ? null : StartupShortcutPathLease.Open(
+            backupDirectory, record.Id, record.Name, record.Origin, record.BackupPath,
+            _native.GetShortcutDirectory(record.Source),
+            [_native.GetShortcutDirectory(UserStartupSource), _native.GetShortcutDirectory(CommonStartupSource)], restoring);
+
+    private async Task<StartupMutationResult> ExecuteMutationAsync(
+        string operation, StartupBackupRecord record, List<StartupBackupRecord> backups, CancellationToken cancellationToken,
+        StartupShortcutPathLease? shortcutPaths)
+    {
+        // Prepare the exact bounded ledger image before ANY intent/native effect. Restore
+        // uses a new record, so compensation never mutates or loses the original history.
+        var completedRecord = operation == "disable" ? record : record with
+            { Disposition = "restored", RestoredAt = DateTimeOffset.Now };
+        var candidate = operation == "disable" ? backups.Append(completedRecord).ToArray()
+            : backups.Select(item => item.Id.Equals(record.Id, StringComparison.OrdinalIgnoreCase) ? completedRecord : item).ToArray();
+        var ledgerBytes = StartupBackupLedger.Write(candidate);
+        var transactionBytes = JsonSerializer.SerializeToUtf8Bytes(new StartupTransaction(operation, record), JsonOptions);
+        if (transactionBytes.Length > StartupBackupLedger.MaximumBytes)
+        { throw new JsonException("Startup transaction exceeds the bounded input size."); }
+        var intent = new PublicationProgress();
         try
         {
-            RestoreSystemEntry(record);
-            mutationApplied = true;
-            record.RestoredAt = DateTimeOffset.Now;
-            await WriteBackupsAsync(backups, cancellationToken).ConfigureAwait(false);
-            DeleteTransaction();
-            return new StartupMutationResult(true, "restore", record.Source, record.Name, record.Id);
+            await WriteBytesAtomicallyAsync(_transactionPath, transactionBytes,
+                StartupMutationOperation.IntentPublication, intent, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception failure) when (intent.Started)
         {
-            if (mutationApplied)
-            {
-                record.RestoredAt = null;
-                RollbackRestore(record);
-            }
+            // Publication may have happened even when its call did not return.
+            throw RecoveryRequired("intent_publication", false, failure);
+        }
 
-            DeleteTransaction();
+        var nativeStarted = false;
+        void ApplyNative(Action action)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            nativeStarted = true;
+            _operations.Execute(StartupMutationOperation.NativeMutation, action);
+        }
+        try
+        {
+            if (operation == "disable") { DisableSystemEntry(record, ApplyNative, shortcutPaths); }
+            else { RestoreSystemEntry(record, ApplyNative, shortcutPaths); }
+        }
+        catch (Exception failure)
+        {
+            if (nativeStarted) { throw RecoveryRequired("native_mutation", false, failure); }
+            CleanupAfterDefiniteFailure(failure);
             throw;
         }
-    }
 
-    internal static (string? Target, string Arguments) SplitCommand(string? command)
-    {
-        if (string.IsNullOrWhiteSpace(command))
+        var ledger = new PublicationProgress();
+        try
         {
-            return (null, string.Empty);
+            await WriteBytesAtomicallyAsync(_paths.StartupBackupPath, ledgerBytes,
+                StartupMutationOperation.LedgerPublication, ledger, cancellationToken).ConfigureAwait(false);
         }
-
-        var value = command.Trim();
-        var matches = System.Text.RegularExpressions.Regex.Matches(
-            value,
-            @"\.(?:exe|com|bat|cmd|ps1|vbs)",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        if (value.StartsWith('"'))
+        catch (Exception failure)
         {
-            var end = value.IndexOf('"', 1);
-            if (end > 1)
-            {
-                return (value[1..end], value[(end + 1)..].Trim());
-            }
-        }
-
-        for (var index = matches.Count - 1; index >= 0; index--)
-        {
-            var end = matches[index].Index + matches[index].Length;
-            var candidate = value[..end].Trim();
-            if (File.Exists(Environment.ExpandEnvironmentVariables(candidate)))
-            {
-                return (candidate, value[end..].Trim());
-            }
-        }
-
-        if (matches.Count > 0)
-        {
-            var end = matches[0].Index + matches[0].Length;
-            return (value[..end].Trim(), value[end..].Trim());
-        }
-
-        var separator = value.IndexOf(' ');
-        return separator < 0
-            ? (value, string.Empty)
-            : (value[..separator], value[(separator + 1)..].Trim());
-    }
-
-    private IReadOnlyList<StartupEntry> ScanActiveEntries(
-        IReadOnlyList<AutorunTask> tasks,
-        bool elevated)
-    {
-        var managedTargets = tasks
-            .Where(task => task.Type == AutorunTaskType.Windows && !string.IsNullOrWhiteSpace(task.Executable))
-            .GroupBy(task => NormalizeTarget(task.Executable!), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First().Name, StringComparer.OrdinalIgnoreCase);
-        var entries = new List<StartupEntry>();
-        ScanShortcutFolder(
-            Environment.GetFolderPath(Environment.SpecialFolder.Startup),
-            UserStartupSource,
-            managedTargets,
-            elevated,
-            entries);
-        ScanShortcutFolder(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup),
-            CommonStartupSource,
-            managedTargets,
-            elevated,
-            entries);
-        ScanRunKey(RegistryHive.CurrentUser, RegistryView.Default, HkcuRunSource, managedTargets, elevated, entries);
-        ScanRunKey(RegistryHive.LocalMachine, RegistryView.Registry64, HklmRunSource, managedTargets, elevated, entries);
-        ScanRunKey(RegistryHive.LocalMachine, RegistryView.Registry32, HklmWow64RunSource, managedTargets, elevated, entries);
-        return entries;
-    }
-
-    private static void ScanShortcutFolder(
-        string directory,
-        string source,
-        IReadOnlyDictionary<string, string> managedTargets,
-        bool elevated,
-        ICollection<StartupEntry> entries)
-    {
-        if (!Directory.Exists(directory))
-        {
-            return;
-        }
-
-        foreach (var path in Directory.EnumerateFiles(directory, "*.lnk", SearchOption.TopDirectoryOnly))
-        {
-            var name = Path.GetFileNameWithoutExtension(path);
-            string? target = null;
-            string? arguments = null;
-            string? workingDirectory = null;
-            string? error = null;
+            // No blind compensation after an attempted namespace publication, even if
+            // the exception is ACCESS_DENIED. It is not proof of the old ledger image.
+            if (ledger.Started) { throw RecoveryRequired("ledger_publication", ledger.Returned, failure); }
             try
             {
-                dynamic shortcut = CreateWshShell().CreateShortcut(path);
-                target = shortcut.TargetPath as string;
-                arguments = shortcut.Arguments as string;
-                workingDirectory = shortcut.WorkingDirectory as string;
+                _operations.Execute(StartupMutationOperation.NativeRollback, () =>
+                {
+                    if (operation == "disable") { RollbackDisable(record); }
+                    else { RollbackRestore(record); }
+                });
             }
-            catch (Exception exception) when (exception is COMException or InvalidCastException)
+            catch (Exception rollbackFailure)
             {
-                error = exception.Message;
+                throw RecoveryRequired("native_rollback", false,
+                    new AggregateException("Startup mutation failed and rollback did not complete.", failure, rollbackFailure));
             }
-
-            entries.Add(CreateActiveEntry(
-                source,
-                name,
-                target,
-                target,
-                arguments,
-                workingDirectory,
-                path,
-                error,
-                managedTargets,
-                elevated));
-        }
-    }
-
-    private static void ScanRunKey(
-        RegistryHive hive,
-        RegistryView view,
-        string source,
-        IReadOnlyDictionary<string, string> managedTargets,
-        bool elevated,
-        ICollection<StartupEntry> entries)
-    {
-        using var baseKey = RegistryKey.OpenBaseKey(hive, view);
-        using var key = baseKey.OpenSubKey(RunSubKey, writable: false);
-        if (key is null)
-        {
-            return;
+            CleanupAfterDefiniteFailure(failure);
+            throw;
         }
 
-        foreach (var name in key.GetValueNames())
+        // The ledger and native call both returned. Intent cleanup is NOT a reason to
+        // roll them back; a cleanup error may itself occur after deleting the intent.
+        try { DeleteTransaction(); }
+        catch (Exception failure) { throw RecoveryRequired("intent_cleanup", true, failure); }
+        return new StartupMutationResult(true, operation, record.Source, record.Name, record.Id);
+
+        StartupMutationRecoveryRequiredException RecoveryRequired(string stage, bool committed, Exception cause) =>
+            new(operation, record.Id, stage, committed, cause);
+        void CleanupAfterDefiniteFailure(Exception failure)
         {
-            var raw = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames)?.ToString();
-            var parsed = SplitCommand(raw);
-            var hiveName = hive == RegistryHive.CurrentUser ? "HKCU" : "HKLM";
-            var viewSuffix = view == RegistryView.Registry32 ? @"\WOW6432Node" : string.Empty;
-            var origin = $@"{hiveName}:\Software{viewSuffix}\Microsoft\Windows\CurrentVersion\Run :: {name}";
-            entries.Add(CreateActiveEntry(
-                source,
-                name,
-                raw,
-                parsed.Target,
-                parsed.Arguments,
-                null,
-                origin,
-                null,
-                managedTargets,
-                elevated));
+            try { DeleteTransaction(); }
+            catch (Exception cleanupFailure)
+            {
+                throw RecoveryRequired("intent_cleanup", false,
+                    new AggregateException("Startup failure could not be finalized.", failure, cleanupFailure));
+            }
         }
     }
 
@@ -337,7 +240,7 @@ public sealed class StartupManager : IDisposable
         bool elevated)
     {
         var requiresAdministrator = RequiresAdministrator(source);
-        var managedTask = target is not null
+        var managedTask = error is null && target is not null
             && managedTargets.TryGetValue(NormalizeTarget(target), out var taskName)
                 ? taskName
                 : null;
@@ -355,11 +258,11 @@ public sealed class StartupManager : IDisposable
             null,
             null,
             requiresAdministrator,
-            !requiresAdministrator || elevated,
+            error is null && (!requiresAdministrator || elevated),
             managedTask);
     }
 
-    private static StartupEntry ToDisabledEntry(StartupBackupRecord record, bool elevated)
+    private static StartupEntry ToDisabledEntry(StartupBackupRecord record)
     {
         var requiresAdministrator = RequiresAdministrator(record.Source);
         return new StartupEntry(
@@ -376,146 +279,187 @@ public sealed class StartupManager : IDisposable
             record.Id,
             record.DisabledAt,
             requiresAdministrator,
-            !requiresAdministrator || elevated,
+            false, // A disabled ledger record is metadata, never proof that restoration is currently available.
             null);
     }
 
-    private void DisableSystemEntry(StartupBackupRecord record)
+    private RegistryValueKind CaptureRegistryKind(StartupEntry entry)
+    {
+        using var key = _native.OpenRunKey(entry.Source, writable: false, create: false)
+            ?? throw new KeyNotFoundException($"Startup registry key is unavailable: {entry.Source}");
+        if (!key.GetValueNames().Contains(entry.Name, StringComparer.OrdinalIgnoreCase))
+        { throw new KeyNotFoundException($"Startup registry value no longer exists: {entry.Name}"); }
+        var kind = key.GetValueKind(entry.Name);
+        if (kind is not (RegistryValueKind.String or RegistryValueKind.ExpandString))
+        { throw new InvalidOperationException("Only String and ExpandString startup registry values can be backed up."); }
+        var raw = key.GetValue(entry.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+        if (raw is null || !string.Equals(raw, entry.RawCommand, StringComparison.Ordinal)
+            || key.GetValueKind(entry.Name) != kind)
+        { throw new InvalidOperationException("Startup registry value changed while preparing its backup."); }
+        return kind;
+    }
+
+    private static RegistryValueKind BackupRegistryKind(StartupBackupRecord record)
+    {
+        if (record.Source is not (HkcuRunSource or HklmRunSource or HklmWow64RunSource))
+        { throw new InvalidOperationException("Unsupported startup registry backup source."); }
+        // Missing/null is a legacy record, NOT evidence of the original type. Preserve the
+        // old REG_SZ restore behavior; never claim recovered type fidelity for such a record.
+        var kind = record.RegistryKind ?? RegistryValueKind.String;
+        if (kind is not (RegistryValueKind.String or RegistryValueKind.ExpandString)
+            || (record.RegistryKind.HasValue && record.RawCommand is null))
+        { throw new InvalidOperationException("Unsupported or invalid startup registry backup value kind."); }
+        return kind;
+    }
+
+    private static bool RegistryCommandMatches(RegistryKey key, StartupBackupRecord record)
+    {
+        var kind = BackupRegistryKind(record);
+        return key.GetValueKind(record.Name) == kind
+            && key.GetValue(record.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is string raw
+            && string.Equals(raw, record.RawCommand ?? string.Empty, StringComparison.Ordinal)
+            && key.GetValueKind(record.Name) == kind;
+    }
+
+    private void DisableSystemEntry(StartupBackupRecord record, Action<Action> apply, StartupShortcutPathLease? shortcutPaths)
     {
         if (IsShortcutSource(record.Source))
         {
-            ValidateShortcutOrigin(record.Source, record.Origin);
-            if (!File.Exists(record.Origin) || string.IsNullOrWhiteSpace(record.BackupPath))
+            var paths = shortcutPaths ?? throw new InvalidOperationException("Shortcut path lease is required.");
+            _operations.Execute(StartupMutationOperation.ShortcutPreparation, () =>
             {
-                throw new FileNotFoundException("Startup shortcut no longer exists.", record.Origin);
-            }
+                paths.EnsureArchiveDirectory();
+                paths.CheckState(restoring: false);
+            });
+            apply(() => File.Move(paths.Origin, paths.BackupPath, overwrite: false));
+            return;
+        }
 
+        using var key = _native.OpenRunKey(record.Source, writable: true, create: false)
+            ?? throw new KeyNotFoundException($"Startup registry key is unavailable: {record.Source}");
+        if (!key.GetValueNames().Contains(record.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new KeyNotFoundException($"Startup registry value no longer exists: {record.Name}");
+        }
+
+        // Best-effort revalidation, not an atomic CAS against non-cooperating native writers.
+        if (!RegistryCommandMatches(key, record))
+        { throw new InvalidOperationException("Startup registry value changed before disable."); }
+        apply(() => key.DeleteValue(record.Name, throwOnMissingValue: true));
+    }
+
+    private void RestoreSystemEntry(StartupBackupRecord record, Action<Action> apply, StartupShortcutPathLease? shortcutPaths)
+    {
+        if (IsShortcutSource(record.Source))
+        {
+            var paths = shortcutPaths ?? throw new InvalidOperationException("Shortcut path lease is required.");
+            _operations.Execute(StartupMutationOperation.ShortcutPreparation, () =>
+            {
+                paths.EnsureOriginDirectory();
+                paths.CheckState(restoring: true);
+            });
+            apply(() => File.Move(paths.BackupPath, paths.Origin, overwrite: false));
+            return;
+        }
+
+        var kind = BackupRegistryKind(record);
+        using var key = _native.OpenRunKey(record.Source, writable: true, create: false);
+        if (key is not null)
+        {
+            if (key.GetValueNames().Contains(record.Name, StringComparer.OrdinalIgnoreCase))
+            { throw new IOException($"Restore registry value already exists: {record.Name}"); }
+            apply(() => key.SetValue(record.Name, record.RawCommand ?? string.Empty, kind));
+            return;
+        }
+        // Creation is itself a native effect. Include it in the unknown-outcome boundary;
+        // recreating this fixed key does not recover other externally deleted values.
+        apply(() =>
+        {
+            using var created = _native.OpenRunKey(record.Source, writable: true, create: true)
+                ?? throw new InvalidOperationException($"Unable to open startup registry key: {record.Source}");
+            if (created.GetValueNames().Contains(record.Name, StringComparer.OrdinalIgnoreCase))
+            { throw new IOException($"Restore registry value already exists: {record.Name}"); }
+            created.SetValue(record.Name, record.RawCommand ?? string.Empty, kind);
+        });
+    }
+
+    private void RollbackDisable(StartupBackupRecord record)
+    {
+        if (IsShortcutSource(record.Source))
+        {
+            if (string.IsNullOrWhiteSpace(record.BackupPath)
+                || !File.Exists(record.BackupPath) || File.Exists(record.Origin))
+            { throw new IOException("Startup shortcut state changed during disable rollback."); }
+            File.Move(record.BackupPath, record.Origin, overwrite: false);
+            return;
+        }
+
+        using var key = _native.OpenRunKey(record.Source, writable: true, create: true)
+            ?? throw new InvalidOperationException("Unable to roll back startup registry mutation.");
+        if (!key.GetValueNames().Contains(record.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            key.SetValue(record.Name, record.RawCommand ?? string.Empty, BackupRegistryKind(record));
+        }
+        else if (!RegistryCommandMatches(key, record))
+        {
+            // A foreign value must not be overwritten or silently counted as our rollback.
+            throw new IOException("Startup registry value changed during disable rollback.");
+        }
+    }
+
+    private void RollbackRestore(StartupBackupRecord record)
+    {
+        if (IsShortcutSource(record.Source))
+        {
+            if (!File.Exists(record.Origin) || string.IsNullOrWhiteSpace(record.BackupPath))
+            { throw new IOException("Startup shortcut state changed during restore rollback."); }
             Directory.CreateDirectory(Path.GetDirectoryName(record.BackupPath)!);
             File.Move(record.Origin, record.BackupPath, overwrite: false);
             return;
         }
 
-        using var key = OpenRunKey(record.Source, writable: true, create: false)
-            ?? throw new KeyNotFoundException($"Startup registry key is unavailable: {record.Source}");
-        if (!key.GetValueNames().Contains(record.Name, StringComparer.Ordinal))
-        {
-            throw new KeyNotFoundException($"Startup registry value no longer exists: {record.Name}");
-        }
-
+        using var key = _native.OpenRunKey(record.Source, writable: true, create: false);
+        if (key is null || !key.GetValueNames().Contains(record.Name, StringComparer.OrdinalIgnoreCase)) { return; }
+        if (!RegistryCommandMatches(key, record))
+        { throw new IOException("Startup registry value changed during restore rollback."); }
         key.DeleteValue(record.Name, throwOnMissingValue: true);
     }
 
-    private static void RestoreSystemEntry(StartupBackupRecord record)
+    private Task<IReadOnlyList<StartupBackupRecord>> ReadBackupsAsync(CancellationToken cancellationToken)
     {
-        if (IsShortcutSource(record.Source))
-        {
-            ValidateShortcutOrigin(record.Source, record.Origin);
-            if (File.Exists(record.Origin))
-            {
-                throw new IOException($"Restore target already exists: {record.Origin}");
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(record.Origin)!);
-            if (!string.IsNullOrWhiteSpace(record.BackupPath) && File.Exists(record.BackupPath))
-            {
-                File.Move(record.BackupPath, record.Origin, overwrite: false);
-            }
-            else
-            {
-                CreateShortcut(record);
-            }
-
-            return;
-        }
-
-        using var key = OpenRunKey(record.Source, writable: true, create: true)
-            ?? throw new InvalidOperationException($"Unable to open startup registry key: {record.Source}");
-        if (key.GetValue(record.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is not null)
-        {
-            throw new IOException($"Restore registry value already exists: {record.Name}");
-        }
-
-        key.SetValue(record.Name, record.RawCommand ?? string.Empty, RegistryValueKind.String);
+        cancellationToken.ThrowIfCancellationRequested();
+        var ledger = ReadBackupLedger(requireComplete: true);
+        if (ledger.Truncated || ledger.InvalidRecords)
+        { throw new InvalidOperationException("Startup backup ledger is incomplete, invalid or ambiguous; no mutation is allowed."); }
+        return Task.FromResult(ledger.Records);
     }
 
-    private static void RollbackDisable(StartupBackupRecord record)
+    private StartupBackupLedgerRead ReadBackupLedger(bool requireComplete = false)
     {
-        if (IsShortcutSource(record.Source))
-        {
-            if (!string.IsNullOrWhiteSpace(record.BackupPath)
-                && File.Exists(record.BackupPath)
-                && !File.Exists(record.Origin))
-            {
-                File.Move(record.BackupPath, record.Origin, overwrite: false);
-            }
-
-            return;
-        }
-
-        using var key = OpenRunKey(record.Source, writable: true, create: true)
-            ?? throw new InvalidOperationException("Unable to roll back startup registry mutation.");
-        if (key.GetValue(record.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is null)
-        {
-            key.SetValue(record.Name, record.RawCommand ?? string.Empty, RegistryValueKind.String);
-        }
+        // Pin only this fixed root input while reading; never follow editable record paths.
+        // Release before publication. This is not a ledger CAS against external writers.
+        using var pin = SshInputFileLease.OpenOptional(_paths.StartupBackupPath, StartupBackupLedger.MaximumBytes);
+        if (pin is null) { return new([], false, false); }
+        using var stream = new FileStream(_paths.StartupBackupPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (stream.Length > StartupBackupLedger.MaximumBytes) { throw new IOException("Startup backup exceeds the bounded read size."); }
+        var bytes = new byte[(int)stream.Length]; stream.ReadExactly(bytes);
+        return StartupBackupLedger.Read(bytes, requireComplete);
     }
 
-    private static void RollbackRestore(StartupBackupRecord record)
+    private sealed class PublicationProgress
     {
-        if (IsShortcutSource(record.Source))
-        {
-            if (File.Exists(record.Origin) && !string.IsNullOrWhiteSpace(record.BackupPath))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(record.BackupPath)!);
-                File.Move(record.Origin, record.BackupPath, overwrite: false);
-            }
-
-            return;
-        }
-
-        using var key = OpenRunKey(record.Source, writable: true, create: false);
-        var current = key?.GetValue(record.Name, null, RegistryValueOptions.DoNotExpandEnvironmentNames)?.ToString();
-        if (string.Equals(current, record.RawCommand ?? string.Empty, StringComparison.Ordinal))
-        {
-            key!.DeleteValue(record.Name, throwOnMissingValue: false);
-        }
+        internal bool Started { get; set; }
+        internal bool Returned { get; set; }
     }
 
-    private async Task<IReadOnlyList<StartupBackupRecord>> ReadBackupsAsync(
-        CancellationToken cancellationToken)
-    {
-        if (!File.Exists(_paths.StartupBackupPath))
-        {
-            return Array.Empty<StartupBackupRecord>();
-        }
-
-        await using var stream = File.OpenRead(_paths.StartupBackupPath);
-        var records = await JsonSerializer.DeserializeAsync<List<StartupBackupRecord>>(
-            stream,
-            JsonOptions,
-            cancellationToken).ConfigureAwait(false);
-        return records ?? [];
-    }
-
-    private Task WriteBackupsAsync(
-        IReadOnlyList<StartupBackupRecord> backups,
-        CancellationToken cancellationToken) =>
-        WriteJsonAtomicallyAsync(_paths.StartupBackupPath, backups, cancellationToken);
-
-    private Task WriteTransactionAsync(
-        StartupTransaction transaction,
-        CancellationToken cancellationToken) =>
-        WriteJsonAtomicallyAsync(_transactionPath, transaction, cancellationToken);
-
-    private static async Task WriteJsonAtomicallyAsync<T>(
-        string path,
-        T value,
-        CancellationToken cancellationToken)
+    private async Task WriteBytesAtomicallyAsync(string path, ReadOnlyMemory<byte> bytes,
+        StartupMutationOperation operation, PublicationProgress progress, CancellationToken cancellationToken, Action? beforePublish = null)
     {
         var directory = Path.GetDirectoryName(path)
             ?? throw new InvalidOperationException($"Invalid JSON path: {path}");
         Directory.CreateDirectory(directory);
         var tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        Exception? failure = null;
         try
         {
             await using (var stream = new FileStream(
@@ -526,51 +470,40 @@ public sealed class StartupManager : IDisposable
                 4096,
                 FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
-                await JsonSerializer.SerializeAsync(stream, value, JsonOptions, cancellationToken)
-                    .ConfigureAwait(false);
+                await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(tempPath, path, overwrite: true);
+            // Once publication is invoked, an exception alone cannot establish which
+            // image is on disk. No error-code guessing or automatic publish retry.
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Started = true;
+            _operations.Execute(operation, () => { beforePublish?.Invoke(); File.Move(tempPath, path, overwrite: true); });
+            progress.Returned = true;
         }
+        catch (Exception error) { failure = error; throw; }
         finally
         {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
+            try { _operations.Execute(StartupMutationOperation.TemporaryCleanup, () => File.Delete(tempPath)); }
+            catch (Exception cleanupFailure) when (failure is not null)
+            { throw new AggregateException("Startup JSON write and candidate cleanup both failed.", failure, cleanupFailure); }
         }
-    }
-
-    private IDisposable AcquireMutationLock()
-    {
-        if (!_mutationMutex.WaitOne(TimeSpan.FromSeconds(15)))
-        {
-            throw new TimeoutException("Another startup-item operation is still running.");
-        }
-
-        return new MutexLease(_mutationMutex);
     }
 
     private void EnsureNoUnresolvedTransaction()
     {
-        if (File.Exists(_transactionPath))
-        {
-            throw new InvalidOperationException(
-                $"An unresolved startup transaction exists: {_transactionPath}");
-        }
+        try { _ = File.GetAttributes(_transactionPath); }
+        catch (FileNotFoundException) { return; }
+        catch (DirectoryNotFoundException) { return; }
+        // Also refuse directories/reparse leaves and propagate denied/unknown probes.
+        throw new InvalidOperationException($"An unresolved startup transaction exists: {_transactionPath}");
     }
 
-    private void DeleteTransaction()
-    {
-        if (File.Exists(_transactionPath))
-        {
-            File.Delete(_transactionPath);
-        }
-    }
+    private void DeleteTransaction() =>
+        _operations.Execute(StartupMutationOperation.IntentCleanup, () => File.Delete(_transactionPath));
 
-    private static dynamic CreateWshShell()
+    private static object CreateWshShell()
     {
         var type = Type.GetTypeFromProgID("WScript.Shell", throwOnError: true)
             ?? throw new PlatformNotSupportedException("WScript.Shell COM is unavailable.");
@@ -578,52 +511,12 @@ public sealed class StartupManager : IDisposable
             ?? throw new InvalidOperationException("Failed to create WScript.Shell.");
     }
 
-    private static void CreateShortcut(StartupBackupRecord record)
+    internal static void KeepComObjectAlive(object? value)
     {
-        if (string.IsNullOrWhiteSpace(record.Target))
-        {
-            throw new InvalidOperationException("The shortcut backup has no target path.");
-        }
-
-        dynamic shortcut = CreateWshShell().CreateShortcut(record.Origin);
-        shortcut.TargetPath = record.Target;
-        shortcut.Arguments = record.Arguments ?? string.Empty;
-        shortcut.WorkingDirectory = record.WorkingDirectory ?? string.Empty;
-        shortcut.Save();
-    }
-
-    private static RegistryKey? OpenRunKey(string source, bool writable, bool create)
-    {
-        var (hive, view) = source switch
-        {
-            HkcuRunSource => (RegistryHive.CurrentUser, RegistryView.Default),
-            HklmRunSource => (RegistryHive.LocalMachine, RegistryView.Registry64),
-            HklmWow64RunSource => (RegistryHive.LocalMachine, RegistryView.Registry32),
-            _ => throw new ArgumentOutOfRangeException(nameof(source), source, "Unsupported startup source."),
-        };
-        var baseKey = RegistryKey.OpenBaseKey(hive, view);
-        var key = create
-            ? baseKey.CreateSubKey(RunSubKey, writable)
-            : baseKey.OpenSubKey(RunSubKey, writable);
-        baseKey.Dispose();
-        return key;
-    }
-
-    private static void ValidateShortcutOrigin(string source, string origin)
-    {
-        var expectedDirectory = source switch
-        {
-            UserStartupSource => Environment.GetFolderPath(Environment.SpecialFolder.Startup),
-            CommonStartupSource => Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup),
-            _ => throw new ArgumentOutOfRangeException(nameof(source), source, "Unsupported shortcut source."),
-        };
-        var fullOrigin = Path.GetFullPath(origin);
-        var fullDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(expectedDirectory));
-        if (!string.Equals(Path.GetDirectoryName(fullOrigin), fullDirectory, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(Path.GetExtension(fullOrigin), ".lnk", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Shortcut origin is outside the expected Startup directory.");
-        }
+        // RCW import counts do not count managed/DLR aliases. A balanced manual
+        // release can still disconnect another user. The CLR owns reclamation;
+        // retain our reference through the last native use, never force release.
+        GC.KeepAlive(value);
     }
 
     private static bool IsShortcutSource(string source) =>
@@ -632,18 +525,12 @@ public sealed class StartupManager : IDisposable
     private static bool RequiresAdministrator(string source) =>
         source is CommonStartupSource or HklmRunSource or HklmWow64RunSource;
 
-    private static void EnsureCanModify(string source)
+    private void EnsureCanModify(string source)
     {
-        if (RequiresAdministrator(source) && !IsAdministrator())
+        if (RequiresAdministrator(source) && !_native.IsAdministrator)
         {
             throw new UnauthorizedAccessException($"Startup source '{source}' requires administrator privileges.");
         }
-    }
-
-    private static bool IsAdministrator()
-    {
-        using var identity = WindowsIdentity.GetCurrent();
-        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 
     private static string NormalizeTarget(string value)
@@ -669,63 +556,6 @@ public sealed class StartupManager : IDisposable
         [property: JsonPropertyName("operation")] string Operation,
         [property: JsonPropertyName("record")] StartupBackupRecord Record);
 
-    private sealed class StartupBackupRecord
-    {
-        [JsonPropertyName("id")]
-        public string Id { get; init; } = string.Empty;
-
-        [JsonPropertyName("action")]
-        public string Action { get; init; } = "disable";
-
-        [JsonPropertyName("disabled_at")]
-        public DateTimeOffset DisabledAt { get; init; }
-
-        [JsonPropertyName("restored_at")]
-        public DateTimeOffset? RestoredAt { get; set; }
-
-        [JsonPropertyName("source")]
-        public string Source { get; init; } = string.Empty;
-
-        [JsonPropertyName("name")]
-        public string Name { get; init; } = string.Empty;
-
-        [JsonPropertyName("raw_command")]
-        public string? RawCommand { get; init; }
-
-        [JsonPropertyName("target")]
-        public string? Target { get; init; }
-
-        [JsonPropertyName("args")]
-        public string? Arguments { get; init; }
-
-        [JsonPropertyName("working_dir")]
-        public string? WorkingDirectory { get; init; }
-
-        [JsonPropertyName("origin")]
-        public string Origin { get; init; } = string.Empty;
-
-        [JsonPropertyName("backup_path")]
-        public string? BackupPath { get; init; }
-    }
-
-    private sealed class MutexLease : IDisposable
-    {
-        private readonly Mutex _mutex;
-        private bool _disposed;
-
-        internal MutexLease(Mutex mutex) => _mutex = mutex;
-
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _mutex.ReleaseMutex();
-        }
-    }
-
-    public void Dispose() => _mutationMutex.Dispose();
+    // Public IDisposable is retained for existing callers. All handles are operation-scoped.
+    public void Dispose() { }
 }

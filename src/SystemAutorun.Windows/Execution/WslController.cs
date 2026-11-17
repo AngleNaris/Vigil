@@ -9,6 +9,7 @@ internal sealed class WslController : IDisposable
     private readonly HiddenProcessRunner _runner = new();
     private readonly ConcurrentDictionary<string, Process> _keepalives =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _keepaliveSync = new();
 
     public async Task<CommandResult> EnsureRunningAsync(
         string distro,
@@ -24,16 +25,19 @@ internal sealed class WslController : IDisposable
             return new CommandResult(false, result.CombinedOutput);
         }
 
-        if (!_keepalives.TryGetValue(distro, out var process) || process.HasExited)
+        lock (_keepaliveSync)
         {
-            process?.Dispose();
-            var keepalive = _runner.StartDetached(
-                "wsl.exe",
-                new[] { "-d", distro, "--exec", "/bin/sleep", "infinity" });
-            _keepalives[distro] = keepalive;
-        }
+            if (!_keepalives.TryGetValue(distro, out var process) || process.HasExited)
+            {
+                process?.Dispose();
+                var keepalive = _runner.StartDetached(
+                    "wsl.exe",
+                    new[] { "-d", distro, "--exec", "/bin/sleep", "infinity" });
+                _keepalives[distro] = keepalive;
+            }
 
-        return new CommandResult(true, $"WSL distro is running: {distro}", _keepalives[distro].Id);
+            return new CommandResult(true, $"WSL distro is running: {distro}", _keepalives[distro].Id);
+        }
     }
 
     public async Task<CommandResult> StartSystemdAsync(
@@ -73,10 +77,13 @@ internal sealed class WslController : IDisposable
             return ready;
         }
 
-        var process = _runner.StartDetached(
-            "wsl.exe",
-            new[] { "-d", distro, "--exec", "bash", "-lc", $"nohup setsid bash -lc {ShellQuote(command)} >/dev/null 2>&1 &" });
-        return new CommandResult(true, $"WSL command started in {distro}.", process.Id);
+        var launch = await RunWslAsync(
+            new[] { "-d", distro, "--exec", "bash", "-lc", $"nohup setsid bash -lc {ShellQuote(command)} >/dev/null 2>&1 &" },
+            TimeSpan.FromSeconds(30),
+            cancellationToken).ConfigureAwait(false);
+        return launch.Succeeded
+            ? new CommandResult(true, $"WSL command started in {distro}.")
+            : launch;
     }
 
     public async Task<CommandResult> StopCommandAsync(
@@ -93,7 +100,13 @@ internal sealed class WslController : IDisposable
         string distro,
         CancellationToken cancellationToken = default)
     {
-        if (_keepalives.TryRemove(distro, out var keepalive))
+        Process? keepalive;
+        lock (_keepaliveSync)
+        {
+            _keepalives.TryRemove(distro, out keepalive);
+        }
+
+        if (keepalive is not null)
         {
             if (!keepalive.HasExited)
             {
@@ -115,19 +128,28 @@ internal sealed class WslController : IDisposable
         CancellationToken cancellationToken = default) =>
         await _runner.RunAsync("wsl.exe", arguments, timeout, cancellationToken).ConfigureAwait(false);
 
-    public IReadOnlyList<int> GetKeepaliveProcessIds(string distro) =>
-        _keepalives.TryGetValue(distro, out var process) && !process.HasExited
-            ? new[] { process.Id }
-            : Array.Empty<int>();
+    public IReadOnlyList<int> GetKeepaliveProcessIds(string distro)
+    {
+        lock (_keepaliveSync)
+        {
+            return _keepalives.TryGetValue(distro, out var process) && !process.HasExited
+                ? new[] { process.Id }
+                : Array.Empty<int>();
+        }
+    }
 
     public void Dispose()
     {
-        foreach (var process in _keepalives.Values)
+        lock (_keepaliveSync)
         {
-            process.Dispose();
-        }
+            foreach (var process in _keepalives.Values)
+            {
+                process.Dispose();
+            }
 
-        _keepalives.Clear();
+            // The keepalive is detached intentionally so managed tasks survive Agent shutdown.
+            _keepalives.Clear();
+        }
     }
 
     private async Task<CommandResult> RunWslAsync(

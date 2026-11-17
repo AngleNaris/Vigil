@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Core.Models;
 
 namespace SystemAutorun.App.Services;
@@ -26,13 +27,19 @@ internal sealed class StartupCacheStore
 
         try
         {
-            await using var stream = File.OpenRead(_path);
-            return await JsonSerializer.DeserializeAsync<StartupManagementSnapshot>(
-                stream,
-                JsonOptions,
-                cancellationToken).ConfigureAwait(false);
+            await using var stream = SnapshotFile.OpenRead(_path);
+            // Display-only compatibility cache: reject unbounded or malformed rows before
+            // constructing WPF bindings. No cached field can enable an action.
+            if (stream.Length > 4 * 1024 * 1024) { return null; }
+            var snapshot = await JsonSerializer.DeserializeAsync<StartupManagementSnapshot>(
+                stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+            return snapshot is { Entries: not null, SourceIssues: not null, ReadableSources: >= 0 and <= 6 }
+                && snapshot.Entries.Count <= 4096 && snapshot.SourceIssues.Count <= 6
+                && snapshot.Entries.All(entry => entry is not null && StartupListQuery.ValidEntry(entry))
+                && snapshot.Entries.Select(entry => entry.Id).Distinct(StringComparer.Ordinal).Count() == snapshot.Entries.Count
+                && snapshot.SourceIssues.All(StartupListQuery.ValidIssue) ? snapshot : null;
         }
-        catch (Exception exception) when (exception is IOException or JsonException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             return null;
         }
@@ -54,7 +61,7 @@ internal sealed class StartupCacheStore
                 json,
                 new UTF8Encoding(false),
                 cancellationToken).ConfigureAwait(false);
-            File.Move(tempPath, _path, overwrite: true);
+            SnapshotFile.Publish(tempPath, _path);
         }
         finally
         {

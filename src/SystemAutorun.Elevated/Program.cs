@@ -4,6 +4,10 @@ using SystemAutorun.Core.Configuration;
 using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Windows.Scheduling;
 
+// Reject before parsing roots, checking elevation, constructing native adapters or
+// writing a profile log. The App uses the same support policy before runas.
+if (!ElevatedCommandPolicy.IsSupported(args.FirstOrDefault())) { return ElevatedCommandPolicy.RejectedExitCode; }
+
 try
 {
     var arguments = ElevatedArguments.Parse(args);
@@ -23,23 +27,6 @@ try
             break;
         case "start-boot":
             scheduler.Run();
-            break;
-        case "startup-disable":
-            using (var manager = new SystemAutorun.Windows.Startup.StartupManager(paths))
-            {
-                _ = await manager.DisableAsync(
-                    Required(arguments.Source, "--source"),
-                    Required(arguments.Name, "--name"),
-                    Required(arguments.Origin, "--origin"));
-            }
-
-            break;
-        case "startup-restore":
-            using (var manager = new SystemAutorun.Windows.Startup.StartupManager(paths))
-            {
-                _ = await manager.RestoreAsync(Required(arguments.BackupId, "--backup-id"));
-            }
-
             break;
         default:
             throw new ArgumentException("Unsupported elevated command.");
@@ -63,18 +50,13 @@ static void EnsureAdministrator()
     }
 }
 
-static string Required(string? value, string option) =>
-    string.IsNullOrWhiteSpace(value)
-        ? throw new ArgumentException($"Required option is missing: {option}")
-        : value;
-
 static async Task WriteFailureAsync(Exception exception)
 {
     try
     {
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SystemAutorun",
+            "Vigil",
             "logs");
         Directory.CreateDirectory(directory);
         await File.AppendAllTextAsync(
@@ -90,20 +72,12 @@ static async Task WriteFailureAsync(Exception exception)
 
 internal sealed record ElevatedArguments(
     string Command,
-    string? RootDirectory,
-    string? Source,
-    string? Name,
-    string? Origin,
-    string? BackupId)
+    string? RootDirectory)
 {
     internal static ElevatedArguments Parse(IReadOnlyList<string> arguments)
     {
         var command = arguments.Count > 0 ? arguments[0] : string.Empty;
         string? rootDirectory = null;
-        string? source = null;
-        string? name = null;
-        string? origin = null;
-        string? backupId = null;
         for (var index = 1; index < arguments.Count; index++)
         {
             if (index + 1 >= arguments.Count)
@@ -117,23 +91,11 @@ internal sealed record ElevatedArguments(
                 case "--root":
                     rootDirectory = value;
                     break;
-                case "--source":
-                    source = value;
-                    break;
-                case "--name":
-                    name = value;
-                    break;
-                case "--origin":
-                    origin = value;
-                    break;
-                case "--backup-id":
-                    backupId = value;
-                    break;
                 default:
                     throw new ArgumentException($"Unsupported argument: {arguments[index - 1]}");
             }
         }
 
-        return new ElevatedArguments(command, rootDirectory, source, name, origin, backupId);
+        return new ElevatedArguments(command, rootDirectory);
     }
 }

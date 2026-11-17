@@ -10,8 +10,7 @@ internal sealed class ConfigurationCache
     private readonly ProjectPaths _paths;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private AutorunConfiguration? _configuration;
-    private DateTime _configWriteTime;
-    private DateTime _overridesWriteTime;
+    private string? _revision;
 
     internal ConfigurationCache(ConfigurationLoader loader, ProjectPaths paths)
     {
@@ -28,21 +27,25 @@ internal sealed class ConfigurationCache
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var configWriteTime = GetWriteTime(_paths.ConfigPath);
-            var overridesWriteTime = GetWriteTime(_paths.OverridesPath);
-            if (!force
-                && _configuration is not null
-                && configWriteTime == _configWriteTime
-                && overridesWriteTime == _overridesWriteTime)
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                return _configuration;
+                var revision = await ReadRevisionAsync(cancellationToken).ConfigureAwait(false);
+                if (!force && _configuration is not null && revision == _revision)
+                {
+                    return _configuration;
+                }
+
+                var configuration = await _loader.LoadAsync(_paths.RootDirectory, cancellationToken).ConfigureAwait(false);
+                var after = await ReadRevisionAsync(cancellationToken).ConfigureAwait(false);
+                if (revision == after)
+                {
+                    _configuration = configuration;
+                    _revision = revision;
+                    return configuration;
+                }
             }
 
-            _configuration = await _loader.LoadAsync(_paths.RootDirectory, cancellationToken)
-                .ConfigureAwait(false);
-            _configWriteTime = configWriteTime;
-            _overridesWriteTime = overridesWriteTime;
-            return _configuration;
+            throw new IOException("Configuration kept changing while Agent was reading it.");
         }
         finally
         {
@@ -50,6 +53,6 @@ internal sealed class ConfigurationCache
         }
     }
 
-    private static DateTime GetWriteTime(string path) =>
-        File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+    private Task<string> ReadRevisionAsync(CancellationToken cancellationToken) =>
+        ConfigurationRevision.ReadAsync(_paths, includePreferences: false, cancellationToken);
 }

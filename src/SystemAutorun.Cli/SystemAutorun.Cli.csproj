@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>vigil</AssemblyName>
+    <Product>Vigil CLI</Product>
+    <AssemblyTitle>vigil</AssemblyTitle>
+    <RootNamespace>SystemAutorun.Cli</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <ProjectReference Include="..\SystemAutorun.Core\SystemAutorun.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -21,13 +21,56 @@
     <SolidColorBrush x:Key="Semantic.Brush.TextDisabled"
                      Color="{StaticResource Primitive.Color.Text.Disabled}" />
     <SolidColorBrush x:Key="Semantic.Brush.ActionPrimary"
-                     Color="{StaticResource Primitive.Color.Purple.600}" />
+                     Color="{StaticResource Primitive.Color.Action.Default}" />
     <SolidColorBrush x:Key="Semantic.Brush.ActionPrimaryHover"
-                     Color="{StaticResource Primitive.Color.Purple.500}" />
+                     Color="{StaticResource Primitive.Color.Action.Hover}" />
     <SolidColorBrush x:Key="Semantic.Brush.FocusAccent"
-                     Color="{StaticResource Primitive.Color.Purple.300}" />
+                     Color="{StaticResource Primitive.Color.Action.Focus}" />
+    <!-- R105: dims the main window while one of its tool dialogs is open, so the child reads as a child. -->
+    <SolidColorBrush x:Key="Semantic.Brush.Scrim" Color="#141417" Opacity="0.68" />
     <SolidColorBrush x:Key="Semantic.Brush.Selection"
-                     Color="{StaticResource Primitive.Color.Purple.Selection}" />
+                     Color="{StaticResource Primitive.Color.Selection}" />
+    <!-- R104b: focus never dims text. Rest sits at the icon-role grey so focus can brighten by 3.24:1. -->
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionHover" Color="{StaticResource Primitive.Color.Interaction.DarkHover}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionOnHover" Color="{StaticResource Primitive.Color.OnStatus}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionActive" Color="{StaticResource Primitive.Color.Interaction.DarkActiveSurface}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionActiveHover" Color="{StaticResource Primitive.Color.Interaction.DarkActiveHover}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionOnActive" Color="{StaticResource Primitive.Color.Interaction.DarkOnActive}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionRest"
+                     Color="{StaticResource Primitive.Color.Text.500}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionFocus"
+                     Color="{StaticResource Primitive.Color.Text.Bright}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionSelected"
+                     Color="{StaticResource Primitive.Color.Text.Bright}" />
+    <SolidColorBrush x:Key="Semantic.Brush.InteractionSelectedFocus"
+                     Color="{StaticResource Primitive.Color.Text.500}" />
+    <!-- R104 state contrast: selection is brighter than rest; focus changes an existing line or glyph color. -->
+    <SolidColorBrush x:Key="Semantic.Brush.RowRest"
+                     Color="{StaticResource Primitive.Color.Text.300}" />
+    <SolidColorBrush x:Key="Semantic.Brush.RowSelected"
+                     Color="{StaticResource Primitive.Color.Text.Bright}" />
+    <SolidColorBrush x:Key="Semantic.Brush.RowMuted"
+                     Color="{StaticResource Primitive.Color.Text.Disabled}" />
+    <SolidColorBrush x:Key="Semantic.Brush.RowMutedSelected"
+                     Color="{StaticResource Primitive.Color.Text.500}" />
+    <SolidColorBrush x:Key="Semantic.Brush.RowFocusBorder"
+                     Color="{StaticResource Primitive.Color.Border.700}" />
+    <SolidColorBrush x:Key="Semantic.Brush.Accent"
+                     Color="{StaticResource Primitive.Color.Error.300}" />
+    <SolidColorBrush x:Key="Semantic.Brush.IconRest"
+                     Color="{StaticResource Primitive.Color.Text.500}" />
+    <SolidColorBrush x:Key="Semantic.Brush.IconFocus"
+                     Color="{StaticResource Primitive.Color.Text.Bright}" />
+    <SolidColorBrush x:Key="Semantic.Brush.ToggleSelected"
+                     Color="{StaticResource Primitive.Color.Primary.Foreground}" />
+    <SolidColorBrush x:Key="Semantic.Brush.ToggleSelectedFocus"
+                     Color="{StaticResource Primitive.Color.Focus.OnLight}" />
+    <SolidColorBrush x:Key="Semantic.Brush.ToggleSelectedSurface"
+                     Color="{StaticResource Primitive.Color.Text.Bright}" />
+    <SolidColorBrush x:Key="Semantic.Brush.FocusBorderOnLight"
+                     Color="{StaticResource Primitive.Color.Focus.OnLight}" />
+    <SolidColorBrush x:Key="Semantic.Brush.ActionPrimaryPressed"
+                     Color="{StaticResource Primitive.Color.Action.Pressed}" />
     <SolidColorBrush x:Key="Semantic.Brush.PrimaryForeground"
                      Color="{StaticResource Primitive.Color.Primary.Foreground}" />
     <SolidColorBrush x:Key="Semantic.Brush.StatusHealthy"
@@ -38,6 +81,17 @@
                      Color="{StaticResource Primitive.Color.Text.500}" />
     <SolidColorBrush x:Key="Semantic.Brush.StatusWarning"
                      Color="{StaticResource Primitive.Color.Warning.300}" />
+    <SolidColorBrush x:Key="Semantic.Brush.StatusCritical"
+                     Color="{StaticResource Primitive.Color.Critical.300}" />
+    <SolidColorBrush x:Key="Semantic.Brush.OnStatus" Color="{StaticResource Primitive.Color.OnStatus}" />
+    <SolidColorBrush x:Key="Semantic.Brush.StatusInfo"
+                     Color="{StaticResource Primitive.Color.Info.300}" />
+    <SolidColorBrush x:Key="Semantic.Brush.TerminalBackground"
+                     Color="{StaticResource Primitive.Color.Terminal.950}" />
+    <SolidColorBrush x:Key="Semantic.Brush.ChartSecondary"
+                     Color="{StaticResource Primitive.Color.Chart.SecondaryDark}" />
+    <SolidColorBrush x:Key="Semantic.Brush.HistoryHealthy"
+                     Color="{StaticResource Primitive.Color.History.Healthy}" />
     <SolidColorBrush x:Key="Semantic.Brush.DangerHover"
                      Color="{StaticResource Primitive.Color.Error.Surface}" />
 </ResourceDictionary>

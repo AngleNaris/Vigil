@@ -16,25 +16,60 @@ public sealed record ProjectPaths(string RootDirectory)
 
     public static ProjectPaths Resolve(string? explicitRoot = null)
     {
-        var candidates = new[]
+        if (explicitRoot is not null)
         {
-            explicitRoot,
-            Environment.GetEnvironmentVariable("SYSTEMAUTORUN_ROOT"),
-            Environment.CurrentDirectory,
-            AppContext.BaseDirectory,
-        };
+            return ResolveExactRoot(explicitRoot);
+        }
+
+        var environmentRoot = Environment.GetEnvironmentVariable("VIGIL_ROOT");
+        if (!string.IsNullOrWhiteSpace(environmentRoot))
+        {
+            return ResolveExactRoot(environmentRoot);
+        }
+
+        var candidates = new[] { Environment.CurrentDirectory, AppContext.BaseDirectory };
 
         foreach (var candidate in candidates)
         {
             var found = FindRoot(candidate);
             if (found is not null)
             {
-                return new ProjectPaths(found);
+                return new ProjectPaths(PhysicalDirectory.Resolve(found));
             }
         }
 
+        var userEnvironmentRoot = Environment.GetEnvironmentVariable(
+            "VIGIL_ROOT",
+            EnvironmentVariableTarget.User);
+        if (!string.IsNullOrWhiteSpace(userEnvironmentRoot)
+            && File.Exists(Path.Combine(userEnvironmentRoot, "autorun.yaml")))
+        {
+            return ResolveExactRoot(userEnvironmentRoot);
+        }
+
+        var defaultWorkspace = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Vigil",
+            "workspace");
+        if (File.Exists(Path.Combine(defaultWorkspace, "autorun.yaml")))
+        {
+            return ResolveExactRoot(defaultWorkspace);
+        }
+
         throw new DirectoryNotFoundException(
-            "Unable to locate autorun.yaml. Pass --root or set SYSTEMAUTORUN_ROOT.");
+            "Unable to locate autorun.yaml. Pass --root or set VIGIL_ROOT.");
+    }
+
+    private static ProjectPaths ResolveExactRoot(string rootDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
+        if (!Directory.Exists(root) || !File.Exists(Path.Combine(root, "autorun.yaml")))
+        {
+            throw new DirectoryNotFoundException($"Configuration root has no autorun.yaml: {root}");
+        }
+
+        return new ProjectPaths(PhysicalDirectory.Resolve(root));
     }
 
     private static string? FindRoot(string? candidate)

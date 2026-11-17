@@ -4,6 +4,7 @@ using SystemAutorun.Core.Infrastructure;
 using SystemAutorun.Core.Models;
 using SystemAutorun.Core.Services;
 using SystemAutorun.Windows.Execution;
+using SystemAutorun.Windows.Health;
 
 namespace SystemAutorun.Agent;
 
@@ -14,6 +15,10 @@ internal sealed class TaskOrchestrator
     private readonly ITaskExecutor _executor;
     private readonly IHealthProbe _healthProbe;
     private readonly FileLog _log;
+    private readonly ManagedProcessReader _managedProcesses;
+    private readonly ManagedProcessReader _observationProcesses = new();
+    private readonly ExceptionLogReader _exceptionLogs;
+    private readonly WindowsServiceController _windowsServices = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _taskLocks =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -22,13 +27,17 @@ internal sealed class TaskOrchestrator
         OverrideStore overrideStore,
         ITaskExecutor executor,
         IHealthProbe healthProbe,
-        FileLog log)
+        FileLog log,
+        ManagedProcessReader? managedProcesses = null,
+        ExceptionLogReader? exceptionLogs = null)
     {
         _configurationCache = configurationCache;
         _overrideStore = overrideStore;
         _executor = executor;
         _healthProbe = healthProbe;
         _log = log;
+        _managedProcesses = managedProcesses ?? new ManagedProcessReader();
+        _exceptionLogs = exceptionLogs ?? new ExceptionLogReader();
     }
 
     internal async Task<IReadOnlyList<TaskSnapshot>> ListAsync(
@@ -36,14 +45,20 @@ internal sealed class TaskOrchestrator
     {
         var configuration = await _configurationCache.GetAsync(cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        return await ObserveTasksAsync(configuration, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<IReadOnlyList<TaskSnapshot>> ObserveTasksAsync(
+        AutorunConfiguration configuration, CancellationToken cancellationToken = default)
+    {
         var probes = configuration.Tasks.Select(async task =>
         {
             if (!task.Enabled)
             {
-                return TaskSnapshot.From(task, HealthResult.Fail("disabled", "Task is disabled."));
+                return TaskSnapshot.From(task, HealthResult.Fail("disabled", "工作负载已禁用。"));
             }
 
-            var health = await _healthProbe.CheckAsync(task, quick: true, cancellationToken)
+            var health = await _healthProbe.CheckPassiveAsync(task, cancellationToken)
                 .ConfigureAwait(false);
             return TaskSnapshot.From(task, health);
         });
@@ -57,9 +72,10 @@ internal sealed class TaskOrchestrator
         var configuration = await _configurationCache.GetAsync(cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var task = configuration.GetTask(name);
-        var health = await _healthProbe.CheckAsync(task, quick: true, cancellationToken)
+        var health = await _healthProbe.CheckPassiveAsync(task, cancellationToken)
             .ConfigureAwait(false);
-        var processIds = _executor.FindProcessIds(task);
+        var processIds = task.Type is AutorunTaskType.Windows or AutorunTaskType.WindowsService
+            ? _executor.FindProcessIds(task) : Array.Empty<int>();
         var logs = await _log.ReadTailAsync(
             configuration.Settings.LogDirectory,
             task.Name,
@@ -67,6 +83,105 @@ internal sealed class TaskOrchestrator
             cancellationToken).ConfigureAwait(false);
         return new TaskStatusDetail(task, health, processIds, logs);
     }
+
+    internal async Task<IReadOnlyList<ManagedProcessSnapshot>> ManagedProcessesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var configuration = await _configurationCache.GetAsync(cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        return await _managedProcesses.ReadAsync(
+            configuration.Tasks,
+            _executor,
+            _healthProbe,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal Task<IReadOnlyList<ManagedProcessSnapshot>> ObserveProcessesAsync(
+        AutorunConfiguration configuration, IReadOnlyList<TaskSnapshot> observations,
+        CancellationToken cancellationToken = default) =>
+        _observationProcesses.ReadAsync(configuration.Tasks, _executor,
+            new CapturedHealthProbe(observations), cancellationToken);
+
+    private sealed class CapturedHealthProbe(IReadOnlyList<TaskSnapshot> observations) : IHealthProbe
+    {
+        private readonly IReadOnlyDictionary<string, TaskSnapshot> _observations = observations
+            .ToDictionary(item => item.Name, StringComparer.OrdinalIgnoreCase);
+
+        public Task<HealthResult> CheckAsync(AutorunTask task, bool quick = false, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_observations.TryGetValue(task.Name, out var result)
+                ? new HealthResult(result.Healthy, result.Reason, result.Detail, result.HealthObserved)
+                : HealthResult.Unknown("health-source-unavailable", "This cycle has no health observation."));
+        }
+
+        public Task<HealthResult> CheckPassiveAsync(AutorunTask task, CancellationToken cancellationToken = default) =>
+            CheckAsync(task, cancellationToken: cancellationToken);
+    }
+
+    internal async Task<ExceptionLogSnapshot> ExceptionLogsAsync(
+        int count = 200,
+        CancellationToken cancellationToken = default)
+    {
+        var configuration = await _configurationCache.GetAsync(cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        return await _exceptionLogs.ReadAsync(
+            configuration.RootDirectory,
+            configuration.Settings.LogDirectory,
+            Math.Clamp(count, 1, 500),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    // Daemon control/recovery plans take and release a shared lock for EACH node. Never
+    // call the legacy recursive boot-start entrypoint while holding a node lock.
+    internal async Task<IDisposable> AcquireTaskAsync(string name, CancellationToken cancellationToken)
+    {
+        var gate = _taskLocks.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new TaskLease(gate);
+    }
+
+    private sealed class TaskLease(SemaphoreSlim gate) : IDisposable
+    {
+        private SemaphoreSlim? _gate = gate;
+        public void Dispose() => Interlocked.Exchange(ref _gate, null)?.Release();
+    }
+
+    internal Task<HealthResult> ObserveTaskAsync(AutorunTask task, CancellationToken cancellationToken) =>
+        _healthProbe.CheckPassiveAsync(task, cancellationToken);
+
+    internal Task<HealthResult> ObservePresenceAsync(AutorunTask task, CancellationToken cancellationToken)
+    {
+        var health = task.Type switch
+        {
+            AutorunTaskType.Windows => task.Health with { Type = HealthCheckType.Process, Pattern = Path.GetFileName(task.Executable) },
+            AutorunTaskType.WindowsService => task.Health with { Type = HealthCheckType.WindowsService, Service = task.Service },
+            AutorunTaskType.WslBoot => task.Health with { Type = HealthCheckType.WslRunning },
+            _ => null,
+        };
+        return health is null
+            ? Task.FromResult(HealthResult.Unknown("presence-unavailable", "Cannot passively confirm this target is absent."))
+            : _healthProbe.CheckPassiveAsync(task with { Health = health }, cancellationToken);
+    }
+
+    internal static bool ConfirmedMissing(HealthResult presence) => presence.Observed && !presence.Healthy
+        && presence.Reason is "process-not-found" or "windows-service-stopped" or "wsl-stopped";
+
+    internal async Task<CommandResult> ExecuteStartNodeAsync(AutorunTask task, bool observedFault, CancellationToken cancellationToken)
+    {
+        // A recovery admission is based ONLY on captured passive evidence. In particular
+        // do not run an active WSL probe before the authorized start side effect.
+        if (!observedFault)
+        {
+            var current = await _healthProbe.CheckAsync(task, quick: true, cancellationToken).ConfigureAwait(false);
+            if (current.Healthy) { return new(true, $"Already healthy: {task.Name}"); }
+        }
+        var started = await _executor.StartAsync(task, cancellationToken).ConfigureAwait(false);
+        return started.Succeeded ? await WaitForHealthyAsync(task, started, cancellationToken).ConfigureAwait(false) : started;
+    }
+
+    internal Task<CommandResult> ExecuteStopNodeAsync(AutorunTask task, CancellationToken cancellationToken) =>
+        _executor.StopAsync(task, cancellationToken);
 
     internal Task<CommandResult> StartAsync(string name, CancellationToken cancellationToken = default) =>
         RunLockedAsync(name, StartWithDependenciesAsync, cancellationToken);
@@ -94,8 +209,8 @@ internal sealed class TaskOrchestrator
             .ConfigureAwait(false);
         var updated = configuration.GetTask(name);
         var health = updated.Enabled
-            ? await _healthProbe.CheckAsync(updated, quick: true, cancellationToken).ConfigureAwait(false)
-            : HealthResult.Fail("disabled", "Task is disabled.");
+            ? await _healthProbe.CheckPassiveAsync(updated, cancellationToken).ConfigureAwait(false)
+            : HealthResult.Fail("disabled", "工作负载已禁用。");
         return TaskSnapshot.From(updated, health);
     }
 
@@ -160,14 +275,24 @@ internal sealed class TaskOrchestrator
             EnsureDirectoryWritable(configuration.Settings.BackupDirectory, out var backupDetail),
             backupDetail));
 
-        try
+        var requiresWsl = configuration.Tasks.Any(task =>
+            task.Type is AutorunTaskType.WslBoot
+                or AutorunTaskType.WslSystemd
+                or AutorunTaskType.WslCommand
+            || task.Health.Type is HealthCheckType.WslRunning
+                or HealthCheckType.SystemdActive
+                or HealthCheckType.WslProcess);
+        if (requiresWsl)
         {
-            var wsl = ExecutableResolver.Resolve("wsl.exe");
-            checks.Add(new DoctorCheck("wsl.exe", true, wsl));
-        }
-        catch (Exception exception)
-        {
-            checks.Add(new DoctorCheck("wsl.exe", false, exception.Message));
+            try
+            {
+                var wsl = ExecutableResolver.Resolve("wsl.exe");
+                checks.Add(new DoctorCheck("wsl.exe", true, wsl));
+            }
+            catch (Exception exception)
+            {
+                checks.Add(new DoctorCheck("wsl.exe", false, exception.Message));
+            }
         }
 
         foreach (var task in configuration.Tasks.Where(task => task.Type == AutorunTaskType.Windows))
@@ -183,6 +308,42 @@ internal sealed class TaskOrchestrator
             }
         }
 
+        foreach (var task in configuration.Tasks.Where(task =>
+            task.Type == AutorunTaskType.WindowsService
+            || task.Health.Type == HealthCheckType.WindowsService))
+        {
+            var serviceName = task.Health.Service ?? task.Service;
+            if (string.IsNullOrWhiteSpace(serviceName))
+            {
+                checks.Add(new DoctorCheck(
+                    $"Windows service: {task.Name}",
+                    false,
+                    "Windows service name is missing."));
+                continue;
+            }
+
+            try
+            {
+                var status = _windowsServices.GetStatus(serviceName);
+                checks.Add(status.Exists
+                    ? new DoctorCheck(
+                        $"Windows service: {task.Name}",
+                        true,
+                        $"{serviceName} ({status.StateLabel})")
+                    : new DoctorCheck(
+                        $"Windows service: {task.Name}",
+                        false,
+                        $"Windows service was not found: {serviceName}"));
+            }
+            catch (Exception exception)
+            {
+                checks.Add(new DoctorCheck(
+                    $"Windows service: {task.Name}",
+                    false,
+                    exception.Message));
+            }
+        }
+
         return new DoctorReport(checks);
     }
 
@@ -191,6 +352,10 @@ internal sealed class TaskOrchestrator
         Func<AutorunConfiguration, AutorunTask, CancellationToken, Task<CommandResult>> operation,
         CancellationToken cancellationToken)
     {
+        var initialConfiguration = await _configurationCache.GetAsync(cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        _ = initialConfiguration.GetTask(name);
+
         var gate = _taskLocks.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -282,7 +447,7 @@ internal sealed class TaskOrchestrator
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(task.Health.TimeoutSeconds);
         HealthResult health;
-        do
+        while (true)
         {
             health = await _healthProbe.CheckAsync(task, quick: true, cancellationToken)
                 .ConfigureAwait(false);
@@ -291,9 +456,16 @@ internal sealed class TaskOrchestrator
                 return new CommandResult(true, health.Detail, startResult.ProcessId);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            await Task.Delay(
+                remaining < TimeSpan.FromSeconds(1) ? remaining : TimeSpan.FromSeconds(1),
+                cancellationToken).ConfigureAwait(false);
         }
-        while (DateTimeOffset.UtcNow < deadline);
 
         return new CommandResult(
             false,

@@ -1,15 +1,10 @@
-using System.Text;
 using System.Text.Json;
+using SystemAutorun.Core.Infrastructure;
 
 namespace SystemAutorun.Core.Configuration;
 
 public sealed class OverrideStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-    };
-
     public async Task SetEnabledAsync(
         string rootDirectory,
         string taskName,
@@ -18,8 +13,9 @@ public sealed class OverrideStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(taskName);
         var path = Path.Combine(Path.GetFullPath(rootDirectory), "autorun.overrides.json");
+        await using var writeLock = await AcquireWriteLockAsync(path, cancellationToken).ConfigureAwait(false);
         var values = await ReadAsync(path, cancellationToken).ConfigureAwait(false);
-        values[taskName] = new OverrideValue(enabled);
+        values[taskName] = enabled;
         await WriteAtomicAsync(path, values, cancellationToken).ConfigureAwait(false);
     }
 
@@ -28,7 +24,9 @@ public sealed class OverrideStore
         string taskName,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(taskName);
         var path = Path.Combine(Path.GetFullPath(rootDirectory), "autorun.overrides.json");
+        await using var writeLock = await AcquireWriteLockAsync(path, cancellationToken).ConfigureAwait(false);
         var overrides = await ReadAsync(path, cancellationToken).ConfigureAwait(false);
         if (!overrides.Remove(taskName))
         {
@@ -38,34 +36,58 @@ public sealed class OverrideStore
         await WriteAtomicAsync(path, overrides, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<Dictionary<string, OverrideValue>> ReadAsync(
+    private static async Task<FileStream> AcquireWriteLockAsync(
         string path,
         CancellationToken cancellationToken)
     {
-        if (!File.Exists(path))
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException($"Invalid overrides path: {path}");
+        Directory.CreateDirectory(directory);
+        var lockPath = Path.Combine(directory, $".{Path.GetFileName(path)}.lock");
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        Exception? lastException = null;
+        while (DateTimeOffset.UtcNow < deadline)
         {
-            return new Dictionary<string, OverrideValue>(StringComparer.OrdinalIgnoreCase);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    1,
+                    FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                lastException = exception;
+                await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken).ConfigureAwait(false);
+            }
         }
 
+        throw new TimeoutException($"Timed out waiting to update overrides: {path}", lastException);
+    }
+
+    private static async Task<Dictionary<string, bool>> ReadAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            await using var stream = File.OpenRead(path);
-            var values = await JsonSerializer.DeserializeAsync<Dictionary<string, OverrideValue>>(
-                stream,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            return values is null
-                ? new Dictionary<string, OverrideValue>(StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, OverrideValue>(values, StringComparer.OrdinalIgnoreCase);
+            return await OverrideFileCodec.ReadAsync(path, cancellationToken).ConfigureAwait(false);
         }
-        catch (JsonException)
+        catch (JsonException exception)
         {
-            return new Dictionary<string, OverrideValue>(StringComparer.OrdinalIgnoreCase);
+            throw new ConfigurationException(
+                $"Failed to parse overrides file '{path}': {exception.Message}",
+                exception);
         }
     }
 
     private static async Task WriteAtomicAsync(
         string path,
-        IReadOnlyDictionary<string, OverrideValue> values,
+        IReadOnlyDictionary<string, bool> values,
         CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(path)
@@ -75,13 +97,8 @@ public sealed class OverrideStore
         var tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         try
         {
-            var json = JsonSerializer.Serialize(values, JsonOptions);
-            await File.WriteAllTextAsync(
-                tempPath,
-                json + Environment.NewLine,
-                new UTF8Encoding(false),
-                cancellationToken).ConfigureAwait(false);
-            File.Move(tempPath, path, true);
+            await OverrideFileCodec.WriteAsync(tempPath, values, cancellationToken).ConfigureAwait(false);
+            SnapshotFile.Publish(tempPath, path);
         }
         finally
         {
@@ -92,5 +109,4 @@ public sealed class OverrideStore
         }
     }
 
-    private sealed record OverrideValue(bool Enabled);
 }

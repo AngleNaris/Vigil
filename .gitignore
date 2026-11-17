@@ -7,12 +7,8 @@ autorun.overrides.json
 autorun.startup.backup.json
 autorun.startup.native.cache.json
 autorun.startup.backup.json.transaction
-
-# Legacy build output
-build*/
-dist*/
-*.pyc
-__pycache__/
+.autorun-state/
+.autorun.*.lock
 
 # .NET build output
 **/bin/
@@ -24,3 +20,9 @@ artifacts/
 
 # Local Codex working notes
 .codex/
+
+# Local test results, visual regression dumps, and tool caches
+TestResults/
+docs/visual/
+.workbuddy/
+agent-fatal.log

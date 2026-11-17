@@ -4,7 +4,7 @@ namespace SystemAutorun.Windows.Startup;
 
 public static class UserStartupRegistration
 {
-    public const string ValueName = "SystemAutorun";
+    public const string ValueName = "Vigil";
 
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 

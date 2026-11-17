@@ -1,15 +1,42 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using SystemAutorun.Core.Models;
 
 namespace SystemAutorun.App.ViewModels;
 
-public sealed class TaskRowViewModel
+public sealed class TaskRowViewModel : ObservableObject
 {
     public TaskRowViewModel(TaskSnapshot snapshot)
     {
         Snapshot = snapshot;
     }
 
-    public TaskSnapshot Snapshot { get; }
+    public TaskSnapshot Snapshot { get; private set; }
+
+    public bool HasHighResourceUsage { get; private set; }
+
+    public string HighResourceSummary { get; private set; } = string.Empty;
+
+    /// <summary>R106: a refresh updates the existing row in place so its container, selection and
+    /// visual state survive; every derived property is re-read from the new snapshot.</summary>
+    internal void Update(TaskSnapshot snapshot)
+    {
+        Snapshot = snapshot;
+        OnPropertyChanged(string.Empty);
+    }
+
+    internal void UpdateResourceAlert(bool hasHighResource, string summary)
+    {
+        if (HasHighResourceUsage == hasHighResource && string.Equals(HighResourceSummary, summary, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        HasHighResourceUsage = hasHighResource;
+        HighResourceSummary = summary;
+        OnPropertyChanged(nameof(HasHighResourceUsage));
+        OnPropertyChanged(nameof(HighResourceSummary));
+        OnPropertyChanged(nameof(ReasonLabel));
+    }
 
     public string Status => Snapshot.Status;
 
@@ -31,9 +58,14 @@ public sealed class TaskRowViewModel
 
     public bool Healthy => Snapshot.Healthy;
 
+    public bool ExpectedRunning => Snapshot.ExpectedRunning;
+
+    public string ExpectedRunningLabel => Snapshot.ExpectedRunning ? "常驻" : "--";
+
     public string TypeLabel => Snapshot.Type switch
     {
         "windows" => "Windows",
+        "windows_service" => "Windows 服务",
         "wsl_boot" => "WSL 启动",
         "wsl_systemd" => "WSL 服务",
         "wsl_command" => "WSL 命令",
@@ -41,30 +73,50 @@ public sealed class TaskRowViewModel
     };
 
     public string TargetSummary => string.IsNullOrWhiteSpace(Distro)
-        ? TypeLabel
-        : $"{TypeLabel} · {Distro}";
-
-    public string ReasonLabel => !Enabled
-        ? "已禁用"
-        : Snapshot.Reason switch
+        ? Snapshot.Type switch
         {
-            "process-running" => "进程运行中",
-            "process-not-found" => "未找到进程",
-            "tcp-open" => "端口可达",
-            "tcp-closed" => "端口不可达",
-            "wsl-running" => "WSL 运行中",
-            "wsl-stopped" => "WSL 未运行",
-            "systemd-active" => "服务运行中",
-            "systemd-not-active" => "服务未运行",
-            "wsl-process-running" => "WSL 进程运行中",
-            "wsl-process-not-found" => "未找到 WSL 进程",
-            "missing-pattern" => "缺少进程匹配规则",
-            "missing-host-or-port" => "缺少地址或端口",
-            "missing-distro" => "缺少 WSL 发行版",
-            "missing-distro-or-service" => "缺少发行版或服务",
-            "missing-distro-or-pattern" => "缺少发行版或进程规则",
-            _ => Snapshot.Reason,
-        };
+            "windows" => $"{TypeLabel} · {Path.GetFileName(Snapshot.Executable)}",
+            "windows_service" => $"{TypeLabel} · {Snapshot.Service}",
+            _ => TypeLabel,
+        }
+        : string.IsNullOrWhiteSpace(Snapshot.Service)
+            ? $"{TypeLabel} · {Distro}"
+            : $"{TypeLabel} · {Distro} · {Snapshot.Service}";
+
+    public string ReasonLabel
+    {
+        get
+        {
+            var reason = !Enabled
+                ? "已禁用"
+                : Snapshot.Reason switch
+                {
+                    "process-running" => "进程运行中",
+                    "process-not-found" => "未找到进程",
+                    "tcp-open" => "端口可达",
+                    "tcp-closed" => "端口不可达",
+                    "windows-service-running" => "Windows 服务运行中",
+                    "windows-service-stopped" => "Windows 服务未运行",
+                    "windows-service-not-found" => "未找到 Windows 服务",
+                    "windows-service-error" => "Windows 服务检查失败",
+                    "wsl-running" => "WSL 运行中",
+                    "wsl-stopped" => "WSL 未运行",
+                    "systemd-active" => "服务运行中",
+                    "systemd-not-active" => "服务未运行",
+                    "wsl-process-running" => "WSL 进程运行中",
+                    "wsl-process-not-found" => "未找到 WSL 进程",
+                    "missing-pattern" => "缺少进程匹配规则",
+                    "missing-host-or-port" => "缺少地址或端口",
+                    "missing-distro" => "缺少 WSL 发行版",
+                    "missing-distro-or-service" => "缺少发行版或服务",
+                    "missing-distro-or-pattern" => "缺少发行版或进程规则",
+                    _ => Snapshot.Reason,
+                };
+            return HasHighResourceUsage && !string.IsNullOrEmpty(HighResourceSummary)
+                ? $"{reason} · {HighResourceSummary}"
+                : reason;
+        }
+    }
 
     public string LaunchSummary =>
         $"{RunAsLabel(Snapshot.Launch.RunAs)} · {TriggerLabel(Snapshot.Launch.Trigger)} · "
@@ -74,7 +126,34 @@ public sealed class TaskRowViewModel
 
     public string ExecutableDisplay => Snapshot.Executable
         ?? Snapshot.Service
+        ?? Snapshot.Command
+        ?? Snapshot.Distro
         ?? "不适用";
+
+    public string ArgumentsDisplay => Snapshot.Arguments.Count == 0
+        ? "无"
+        : string.Join(" ", Snapshot.Arguments);
+
+    public string WorkingDirectoryDisplay => string.IsNullOrWhiteSpace(Snapshot.WorkingDirectory)
+        ? "不适用"
+        : Snapshot.WorkingDirectory;
+
+    public string DependencyDisplay => Snapshot.DependsOn.Count == 0
+        ? "无"
+        : string.Join(" → ", Snapshot.DependsOn);
+
+    public string HealthSummary => Snapshot.Health?.Type switch
+    {
+        HealthCheckType.Process => $"进程 · {Snapshot.Health.Pattern}",
+        HealthCheckType.Tcp => $"TCP · {Snapshot.Health.Host}:{Snapshot.Health.Port}",
+        HealthCheckType.WindowsService => $"Windows 服务 · {Snapshot.Health.Service ?? Snapshot.Service}",
+        HealthCheckType.WslRunning => $"WSL 发行版 · {Snapshot.Health.Distro ?? Snapshot.Distro}",
+        HealthCheckType.SystemdActive =>
+            $"systemd · {Snapshot.Health.Distro ?? Snapshot.Distro}/{Snapshot.Health.Service ?? Snapshot.Service}",
+        HealthCheckType.WslProcess =>
+            $"WSL 进程 · {Snapshot.Health.Distro ?? Snapshot.Distro}/{Snapshot.Health.Pattern}",
+        _ => ReasonLabel,
+    };
 
     private static string RunAsLabel(RunAsMode mode) => mode switch
     {

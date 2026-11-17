@@ -3,6 +3,8 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <UseWPF>true</UseWPF>
+    <OutputType>Exe</OutputType>
+    <StartupObject>SystemAutorun.IntegrationTests.StartupMutationAdapterTests</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,9 +16,17 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <AssemblyMetadata Include="CliExecutablePath" Condition="'$(UseArtifactsOutput)' != 'true'" Value="$(MSBuildProjectDirectory)\..\..\src\SystemAutorun.Cli\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\vigil.exe" />
+    <AssemblyMetadata Include="AgentExecutablePath" Condition="'$(UseArtifactsOutput)' != 'true'" Value="$(MSBuildProjectDirectory)\..\..\src\SystemAutorun.Agent\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\Vigil.Agent.exe" />
+    <AssemblyMetadata Include="ElevatedAssemblyPath" Condition="'$(UseArtifactsOutput)' != 'true'" Value="$(MSBuildProjectDirectory)\..\..\src\SystemAutorun.Elevated\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\Vigil.Elevated.dll" />
+    <AssemblyMetadata Include="CliExecutablePath" Condition="'$(UseArtifactsOutput)' == 'true'" Value="$(ArtifactsPath)\bin\SystemAutorun.Cli\$(ArtifactsPivots)\vigil.exe" />
+    <AssemblyMetadata Include="AgentExecutablePath" Condition="'$(UseArtifactsOutput)' == 'true'" Value="$(ArtifactsPath)\bin\SystemAutorun.Agent\$(ArtifactsPivots)\Vigil.Agent.exe" />
+    <AssemblyMetadata Include="ElevatedAssemblyPath" Condition="'$(UseArtifactsOutput)' == 'true'" Value="$(ArtifactsPath)\bin\SystemAutorun.Elevated\$(ArtifactsPivots)\Vigil.Elevated.dll" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SystemAutorun.Cli\SystemAutorun.Cli.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\SystemAutorun.Agent\SystemAutorun.Agent.csproj" />
     <ProjectReference Include="..\..\src\SystemAutorun.Core\SystemAutorun.Core.csproj" />
     <ProjectReference Include="..\..\src\SystemAutorun.App\SystemAutorun.App.csproj" />
     <ProjectReference Include="..\..\src\SystemAutorun.Windows\SystemAutorun.Windows.csproj" />

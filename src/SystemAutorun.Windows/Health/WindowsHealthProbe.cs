@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net.Sockets;
 using SystemAutorun.Core.Models;
 using SystemAutorun.Core.Services;
@@ -9,6 +10,18 @@ public sealed class WindowsHealthProbe : IHealthProbe
 {
     private readonly ProcessIdentity _processIdentity = new();
     private readonly WslHealthClient _wsl = new();
+    private readonly WindowsServiceController _services = new();
+
+    public Task<HealthResult> CheckPassiveAsync(AutorunTask task, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        // A prior `wsl --list --running` check cannot close the stop/--exec race.
+        // Do not use --exec at all on passive read paths; explicit start verification may.
+        return task.Health.Type is HealthCheckType.SystemdActive or HealthCheckType.WslProcess
+            ? Task.FromResult(HealthResult.Unknown("passive-wsl-probe-unavailable",
+                "只读监测不执行 WSL 内部命令，以免启动已停止的发行版；服务/进程健康来源不可用。"))
+            : CheckAsync(task, quick: true, cancellationToken);
+    }
 
     public async Task<HealthResult> CheckAsync(
         AutorunTask task,
@@ -18,6 +31,7 @@ public sealed class WindowsHealthProbe : IHealthProbe
         {
             HealthCheckType.Process => CheckProcess(task),
             HealthCheckType.Tcp => await CheckTcpAsync(task, quick, cancellationToken).ConfigureAwait(false),
+            HealthCheckType.WindowsService => CheckWindowsService(task),
             HealthCheckType.WslRunning => await _wsl.CheckRunningAsync(task, cancellationToken).ConfigureAwait(false),
             HealthCheckType.SystemdActive => await _wsl.CheckSystemdAsync(task, quick, cancellationToken).ConfigureAwait(false),
             HealthCheckType.WslProcess => await _wsl.CheckProcessAsync(task, cancellationToken).ConfigureAwait(false),
@@ -28,13 +42,49 @@ public sealed class WindowsHealthProbe : IHealthProbe
     {
         if (string.IsNullOrWhiteSpace(task.Health.Pattern))
         {
-            return HealthResult.Fail("missing-pattern", "Process health pattern is missing.");
+            return HealthResult.Unknown("missing-pattern", "Process health pattern is missing.");
         }
 
-        var processIds = _processIdentity.FindMatchingProcessIds(task);
-        return processIds.Count > 0
-            ? HealthResult.Ok("process-running", $"PID {string.Join(", ", processIds)}")
-            : HealthResult.Fail("process-not-found", $"Process not found: {task.Health.Pattern}");
+        var presence = _processIdentity.ReadPresence(task);
+        return presence.ProcessIds.Count > 0
+            ? HealthResult.Ok("process-running", $"PID {string.Join(", ", presence.ProcessIds)}")
+            : presence.IdentityUnavailable
+                ? HealthResult.Unknown("process-identity-unavailable", "A matching process identity cannot be read; absence is not confirmed.")
+                : HealthResult.Fail("process-not-found", $"Process not found: {task.Health.Pattern}");
+    }
+
+    private HealthResult CheckWindowsService(AutorunTask task)
+    {
+        var serviceName = task.Health.Service ?? task.Service;
+        if (string.IsNullOrWhiteSpace(serviceName))
+        {
+            return HealthResult.Fail("missing-windows-service", "Windows service name is missing.");
+        }
+
+        try
+        {
+            var status = _services.GetStatus(serviceName);
+            if (!status.Exists)
+            {
+                return HealthResult.Fail(
+                    "windows-service-not-found",
+                    $"Windows service was not found: {serviceName}");
+            }
+
+            return status.Running
+                ? HealthResult.Ok(
+                    "windows-service-running",
+                    status.ProcessId is int processId
+                        ? $"{serviceName} is running (PID {processId})."
+                        : $"{serviceName} is running.")
+                : status.State == 1 // SERVICE_STOPPED; pending/paused does not prove an absent process.
+                    ? HealthResult.Fail("windows-service-stopped", $"{serviceName} is {status.StateLabel}.")
+                    : HealthResult.Unknown("windows-service-transition", $"{serviceName} is {status.StateLabel}; absence is not confirmed.");
+        }
+        catch (Win32Exception exception)
+        {
+            return HealthResult.Unknown("windows-service-error", exception.Message);
+        }
     }
 
     private static async Task<HealthResult> CheckTcpAsync(
