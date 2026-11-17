@@ -119,7 +119,7 @@ vigil daemon stop --json
 安装包未附加商业代码签名，请仅从本仓库 [GitHub Releases](https://github.com/AngleNaris/Vigil/releases) 获取，并校验 SHA-256：
 
 ```text
-0a4704ba1986bf0e39a5a518cd446259cbf4b78b92f6028da4679741de6bc637
+8f7b1dbe5fc4a7162cfb4abab1da6304f525a083bd84afb4b218219e5f0e395f
 ```
 
 ## 自己构建
