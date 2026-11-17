@@ -42,6 +42,10 @@ public sealed record AddTaskRequest(
 
 public sealed record TaskAutomationPatch(bool? StartOnAppLaunch = null, bool? AutoRecover = null);
 
+public sealed record ReorderTasksRequest(IReadOnlyList<string> OrderedNames);
+
+public sealed record UpdateTaskRequest(string OriginalName, AddTaskRequest Task);
+
 public sealed record ConfigurationMutationResult(
     bool Succeeded,
     string Action,
@@ -96,55 +100,13 @@ public sealed class ConfigurationFileEditor
         {
             var configuration = await _loader.LoadAsync(paths.RootDirectory, cancellationToken)
                 .ConfigureAwait(false);
-            var name = Required(request.Name, "Task name is required.");
+            var spec = PrepareTaskSpec(configuration, request);
             if (configuration.Tasks.Any(task =>
-                string.Equals(task.Name, name, StringComparison.OrdinalIgnoreCase)))
+                string.Equals(task.Name, spec.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new ConfigurationException($"Duplicate task name: {name}");
+                throw new ConfigurationException($"Duplicate task name: {spec.Name}");
             }
 
-            string? executable = null;
-            string? workingDirectory = null;
-            if (request.Type == AutorunTaskType.Windows)
-            {
-                executable = Path.GetFullPath(Required(
-                    request.Executable,
-                    "Executable path is required for a Windows task."));
-                if (!File.Exists(executable))
-                {
-                    throw new FileNotFoundException("Executable does not exist.", executable);
-                }
-
-                workingDirectory = string.IsNullOrWhiteSpace(request.WorkingDirectory)
-                    ? Path.GetDirectoryName(executable)!
-                    : Path.GetFullPath(request.WorkingDirectory);
-            }
-
-            var delay = request.StartupDelay ?? configuration.Settings.DefaultStartupDelay;
-            if (delay < 0)
-            {
-                throw new ConfigurationException("startup_delay must be non-negative.");
-            }
-
-            if (request.HealthTimeoutSeconds <= 0)
-            {
-                throw new ConfigurationException("health.timeout must be positive.");
-            }
-
-            var healthPattern = string.IsNullOrWhiteSpace(request.HealthPattern)
-                && request.HealthType == HealthCheckType.Process
-                && executable is not null
-                    ? Path.GetFileName(executable)
-                    : NormalizeOptional(request.HealthPattern);
-            var health = new HealthCheckDefinition(
-                request.HealthType,
-                healthPattern,
-                NormalizeOptional(request.HealthHost),
-                request.HealthPort,
-                request.HealthTimeoutSeconds,
-                NormalizeOptional(request.Distro),
-                NormalizeOptional(request.Service));
-            var launch = request.Launch ?? LaunchOptions.LegacyDefault(request.Type);
             var original = await SnapshotFile.ReadAllTextAsync(paths.ConfigPath, cancellationToken)
                 .ConfigureAwait(false);
             var newline = original.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
@@ -152,31 +114,9 @@ public sealed class ConfigurationFileEditor
             var candidate = appendBase.TrimEnd('\r', '\n')
                 + newline
                 + (wasEmpty ? string.Empty : newline)
-                + BuildTaskBlock(
-                    name,
-                    request.Type,
-                    executable,
-                    request.Arguments ?? Array.Empty<string>(),
-                    string.IsNullOrWhiteSpace(request.Description) ? name : request.Description.Trim(),
-                    workingDirectory,
-                    NormalizeOptional(request.Distro),
-                    NormalizeOptional(request.Service),
-                    NormalizeOptional(request.Command),
-                    request.DependsOn?
-                        .Where(value => !string.IsNullOrWhiteSpace(value))
-                        .Select(value => value.Trim())
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray()
-                        ?? Array.Empty<string>(),
-                    delay,
-                    health,
-                    launch,
-                    request.ExpectedRunning,
-                    request.StartOnAppLaunch,
-                    request.AutoRecover,
-                    newline)
+                + BuildTaskBlock(spec, enabled: true, newline)
                 + newline;
-            return await CommitAsync(paths, original, candidate, "add", name, cancellationToken)
+            return await CommitAsync(paths, original, candidate, "add", spec.Name, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -184,6 +124,200 @@ public sealed class ConfigurationFileEditor
             MutationLock.Release();
         }
     }
+
+    public async Task<ConfigurationMutationResult> UpdateTaskAsync(
+        ProjectPaths paths,
+        UpdateTaskRequest update,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(update);
+        ArgumentNullException.ThrowIfNull(update.Task);
+        var originalName = Required(update.OriginalName, "Original task name is required.");
+        await MutationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var configuration = await _loader.LoadAsync(paths.RootDirectory, cancellationToken)
+                .ConfigureAwait(false);
+            var existing = configuration.GetTask(originalName);
+            var spec = PrepareTaskSpec(configuration, update.Task);
+            if (configuration.Tasks.Any(task =>
+                !string.Equals(task.Name, existing.Name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(task.Name, spec.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ConfigurationException($"Duplicate task name: {spec.Name}");
+            }
+
+            var original = await SnapshotFile.ReadAllTextAsync(paths.ConfigPath, cancellationToken)
+                .ConfigureAwait(false);
+            var newline = original.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            var candidate = ReplaceTaskBlock(original, existing.Name, BuildTaskBlock(spec, existing.Enabled, newline));
+            var result = await CommitAsync(paths, original, candidate, "update", spec.Name, cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(existing.Name, spec.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                var overrides = new OverrideStore();
+                await overrides.RemoveAsync(paths.RootDirectory, existing.Name, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!existing.Enabled)
+                {
+                    await overrides.SetEnabledAsync(paths.RootDirectory, spec.Name, false, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            MutationLock.Release();
+        }
+    }
+
+    public async Task<ConfigurationMutationResult> ReorderTasksAsync(
+        ProjectPaths paths,
+        ReorderTasksRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.OrderedNames);
+        await MutationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var configuration = await _loader.LoadAsync(paths.RootDirectory, cancellationToken)
+                .ConfigureAwait(false);
+            if (configuration.Tasks.Count <= 1)
+            {
+                return new ConfigurationMutationResult(true, "reorder", string.Empty, string.Empty);
+            }
+
+            var byName = configuration.Tasks.ToDictionary(task => task.Name, StringComparer.OrdinalIgnoreCase);
+            var desired = new List<string>(configuration.Tasks.Count);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in request.OrderedNames)
+            {
+                if (!string.IsNullOrWhiteSpace(name)
+                    && byName.TryGetValue(name.Trim(), out var task)
+                    && seen.Add(task.Name))
+                {
+                    desired.Add(task.Name);
+                }
+            }
+
+            foreach (var task in configuration.Tasks)
+            {
+                if (seen.Add(task.Name))
+                {
+                    desired.Add(task.Name);
+                }
+            }
+
+            if (desired.SequenceEqual(configuration.Tasks.Select(task => task.Name), StringComparer.OrdinalIgnoreCase))
+            {
+                return new ConfigurationMutationResult(true, "reorder", string.Empty, string.Empty);
+            }
+
+            var original = await SnapshotFile.ReadAllTextAsync(paths.ConfigPath, cancellationToken)
+                .ConfigureAwait(false);
+            var candidate = ReorderTaskBlocks(original, desired);
+            return await CommitAsync(paths, original, candidate, "reorder", "tasks", cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            MutationLock.Release();
+        }
+    }
+
+    private static PreparedTaskSpec PrepareTaskSpec(AutorunConfiguration configuration, AddTaskRequest request)
+    {
+        var name = Required(request.Name, "Task name is required.");
+        string? executable = null;
+        string? workingDirectory = null;
+        if (request.Type == AutorunTaskType.Windows)
+        {
+            executable = Path.GetFullPath(Required(
+                request.Executable,
+                "Executable path is required for a Windows task."));
+            if (!File.Exists(executable))
+            {
+                throw new FileNotFoundException("Executable does not exist.", executable);
+            }
+
+            workingDirectory = string.IsNullOrWhiteSpace(request.WorkingDirectory)
+                ? Path.GetDirectoryName(executable)!
+                : Path.GetFullPath(request.WorkingDirectory);
+        }
+
+        var delay = request.StartupDelay ?? configuration.Settings.DefaultStartupDelay;
+        if (delay < 0)
+        {
+            throw new ConfigurationException("startup_delay must be non-negative.");
+        }
+
+        if (request.HealthTimeoutSeconds <= 0)
+        {
+            throw new ConfigurationException("health.timeout must be positive.");
+        }
+
+        var healthPattern = string.IsNullOrWhiteSpace(request.HealthPattern)
+            && request.HealthType == HealthCheckType.Process
+            && executable is not null
+                ? Path.GetFileName(executable)
+                : NormalizeOptional(request.HealthPattern);
+        var health = new HealthCheckDefinition(
+            request.HealthType,
+            healthPattern,
+            NormalizeOptional(request.HealthHost),
+            request.HealthPort,
+            request.HealthTimeoutSeconds,
+            NormalizeOptional(request.Distro),
+            NormalizeOptional(request.Service));
+        var launch = request.Launch ?? LaunchOptions.LegacyDefault(request.Type);
+        var dependsOn = request.DependsOn?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray()
+            ?? Array.Empty<string>();
+        var description = string.IsNullOrWhiteSpace(request.Description) ? name : request.Description.Trim();
+        return new PreparedTaskSpec(
+            name,
+            request.Type,
+            executable,
+            request.Arguments ?? Array.Empty<string>(),
+            description,
+            workingDirectory,
+            NormalizeOptional(request.Distro),
+            NormalizeOptional(request.Service),
+            NormalizeOptional(request.Command),
+            dependsOn,
+            delay,
+            health,
+            launch,
+            request.ExpectedRunning,
+            request.StartOnAppLaunch,
+            request.AutoRecover);
+    }
+
+    private sealed record PreparedTaskSpec(
+        string Name,
+        AutorunTaskType Type,
+        string? Executable,
+        IReadOnlyList<string> Arguments,
+        string Description,
+        string? WorkingDirectory,
+        string? Distro,
+        string? Service,
+        string? Command,
+        IReadOnlyList<string> DependsOn,
+        int Delay,
+        HealthCheckDefinition Health,
+        LaunchOptions Launch,
+        bool ExpectedRunning,
+        bool? StartOnAppLaunch,
+        bool? AutoRecover);
 
     private static string PrepareTaskSequenceForAppend(string yaml, out bool wasEmpty)
     {
@@ -326,6 +460,71 @@ public sealed class ConfigurationFileEditor
 
     internal static string RemoveTaskBlock(string yaml, string taskName)
     {
+        var (root, tasks) = LoadTasksSequence(yaml);
+        var (start, end, _) = FindTaskSpan(yaml, tasks, taskName);
+        var result = yaml.Remove(start, end - start);
+        if (tasks.Children.Count == 1)
+        {
+            var key = root.Children.Keys.OfType<YamlScalarNode>().Single(node => node.Value == "tasks");
+            var colon = result.IndexOf(':', checked((int)key.End.Index));
+            result = result.Insert(colon + 1, " []");
+        }
+
+        return result;
+    }
+
+    internal static string ReplaceTaskBlock(string yaml, string taskName, string replacementBlock)
+    {
+        var (_, tasks) = LoadTasksSequence(yaml);
+        var (start, end, _) = FindTaskSpan(yaml, tasks, taskName);
+        var existingLength = yaml[start..end].TrimEnd('\r', '\n').Length;
+        return yaml.Remove(start, existingLength).Insert(start, replacementBlock);
+    }
+
+    internal static string ReorderTaskBlocks(string yaml, IReadOnlyList<string> orderedNames)
+    {
+        var (_, tasks) = LoadTasksSequence(yaml);
+        var spans = new List<(string Name, int Start, int ContentEnd)>(tasks.Children.Count);
+        for (var i = 0; i < tasks.Children.Count; i++)
+        {
+            if (tasks.Children[i] is not YamlMappingNode mapping
+                || !mapping.Children.TryGetValue(new YamlScalarNode("name"), out var nameNode)
+                || nameNode is not YamlScalarNode scalar
+                || string.IsNullOrWhiteSpace(scalar.Value))
+            {
+                throw new ConfigurationException("All tasks must define scalar names to reorder.");
+            }
+
+            var (start, end, _) = GetTaskSpanAt(yaml, tasks, i);
+            var contentLength = yaml[start..end].TrimEnd('\r', '\n').Length;
+            spans.Add((scalar.Value, start, start + contentLength));
+        }
+
+        var blocksByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var span in spans)
+        {
+            blocksByName[span.Name] = yaml[span.Start..span.ContentEnd];
+        }
+
+        var newline = yaml.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var separator = newline;
+        if (spans.Count >= 2)
+        {
+            var between = yaml[spans[0].ContentEnd..spans[1].Start];
+            if (!string.IsNullOrEmpty(between))
+            {
+                separator = between;
+            }
+        }
+
+        var reordered = orderedNames.Select(name => blocksByName[name]).ToArray();
+        var totalStart = spans[0].Start;
+        var totalEnd = spans[^1].ContentEnd;
+        return yaml.Remove(totalStart, totalEnd - totalStart).Insert(totalStart, string.Join(separator, reordered));
+    }
+
+    private static (YamlMappingNode Root, YamlSequenceNode Tasks) LoadTasksSequence(string yaml)
+    {
         var stream = new YamlStream();
         using (var reader = new StringReader(yaml))
         {
@@ -339,6 +538,14 @@ public sealed class ConfigurationFileEditor
             throw new ConfigurationException("Config does not contain a tasks sequence.");
         }
 
+        return (root, tasks);
+    }
+
+    private static (int Start, int End, YamlMappingNode Node) FindTaskSpan(
+        string yaml,
+        YamlSequenceNode tasks,
+        string taskName)
+    {
         var matches = tasks.Children
             .OfType<YamlMappingNode>()
             .Where(mapping => mapping.Children.TryGetValue(new YamlScalarNode("name"), out var nameNode)
@@ -349,9 +556,17 @@ public sealed class ConfigurationFileEditor
             throw new ConfigurationException($"Expected one task block for '{taskName}', found {matches.Length}.");
         }
 
-        var mappingNode = matches[0];
+        var taskIndex = tasks.Children.IndexOf(matches[0]);
+        return GetTaskSpanAt(yaml, tasks, taskIndex);
+    }
+
+    private static (int Start, int End, YamlMappingNode Node) GetTaskSpanAt(
+        string yaml,
+        YamlSequenceNode tasks,
+        int taskIndex)
+    {
+        var mappingNode = (YamlMappingNode)tasks.Children[taskIndex];
         var start = FindLineStart(yaml, checked((int)mappingNode.Start.Index));
-        var taskIndex = tasks.Children.IndexOf(mappingNode);
         int end;
         if (taskIndex >= 0 && taskIndex + 1 < tasks.Children.Count)
         {
@@ -367,7 +582,7 @@ public sealed class ConfigurationFileEditor
             if (!firstLine.AsSpan(indentation).StartsWith("-", StringComparison.Ordinal)
                 || yaml[checked((int)mappingNode.Start.Index)] == '{')
             {
-                throw new ConfigurationException("Removing this task requires a block-style task entry.");
+                throw new ConfigurationException("Removing or editing this task requires a block-style task entry.");
             }
 
             end = firstLineEnd;
@@ -385,15 +600,7 @@ public sealed class ConfigurationFileEditor
             }
         }
 
-        var result = yaml.Remove(start, end - start);
-        if (tasks.Children.Count == 1)
-        {
-            var key = root.Children.Keys.OfType<YamlScalarNode>().Single(node => node.Value == "tasks");
-            var colon = result.IndexOf(':', checked((int)key.End.Index));
-            result = result.Insert(colon + 1, " []");
-        }
-
-        return result;
+        return (start, end, mappingNode);
     }
 
     internal static string SetTaskScalar(
@@ -531,110 +738,93 @@ public sealed class ConfigurationFileEditor
         stream.Flush(flushToDisk: true);
     }
 
-    private static string BuildTaskBlock(
-        string name,
-        AutorunTaskType type,
-        string? executable,
-        IReadOnlyList<string> arguments,
-        string description,
-        string? workingDirectory,
-        string? distro,
-        string? service,
-        string? command,
-        IReadOnlyList<string> dependsOn,
-        int delay,
-        HealthCheckDefinition health,
-        LaunchOptions launch,
-        bool expectedRunning,
-        bool? startOnAppLaunch,
-        bool? autoRecover,
-        string newline)
+    private static string BuildTaskBlock(PreparedTaskSpec spec, bool enabled, string newline)
     {
         var lines = new List<string>
         {
-            $"  - name: {Quote(name)}",
-            $"    type: {type.ToKey()}",
-            "    enabled: true",
-            $"    expected_running: {expectedRunning.ToString().ToLowerInvariant()}",
-            $"    description: {Quote(description)}",
+            $"  - name: {Quote(spec.Name)}",
+            $"    type: {spec.Type.ToKey()}",
+            $"    enabled: {enabled.ToString().ToLowerInvariant()}",
+            $"    expected_running: {spec.ExpectedRunning.ToString().ToLowerInvariant()}",
+            $"    description: {Quote(spec.Description)}",
         };
 
-        if (startOnAppLaunch is { } starts) { lines.Add($"    start_on_app_launch: {starts.ToString().ToLowerInvariant()}"); }
-        if (autoRecover is { } recovers) { lines.Add($"    auto_recover: {recovers.ToString().ToLowerInvariant()}"); }
+        if (spec.StartOnAppLaunch is { } starts) { lines.Add($"    start_on_app_launch: {starts.ToString().ToLowerInvariant()}"); }
+        if (spec.AutoRecover is { } recovers) { lines.Add($"    auto_recover: {recovers.ToString().ToLowerInvariant()}"); }
 
-        switch (type)
+        switch (spec.Type)
         {
             case AutorunTaskType.Windows:
-                lines.Add($"    exec: {Quote(Required(executable, "Executable path is required."))}");
-                if (arguments.Count > 0)
+                lines.Add($"    exec: {Quote(Required(spec.Executable, "Executable path is required."))}");
+                if (spec.Arguments.Count > 0)
                 {
-                    lines.Add($"    args: [{string.Join(", ", arguments.Select(Quote))}]");
+                    lines.Add($"    args: [{string.Join(", ", spec.Arguments.Select(Quote))}]");
                 }
 
-                lines.Add($"    working_dir: {Quote(Required(workingDirectory, "Working directory is required."))}");
+                lines.Add($"    working_dir: {Quote(Required(spec.WorkingDirectory, "Working directory is required."))}");
                 break;
             case AutorunTaskType.WindowsService:
-                lines.Add($"    service: {Quote(Required(service, "Windows service name is required."))}");
+                lines.Add($"    service: {Quote(Required(spec.Service, "Windows service name is required."))}");
                 break;
             case AutorunTaskType.WslBoot:
-                lines.Add($"    distro: {Quote(Required(distro, "WSL distro is required."))}");
+                lines.Add($"    distro: {Quote(Required(spec.Distro, "WSL distro is required."))}");
                 break;
             case AutorunTaskType.WslSystemd:
-                lines.Add($"    distro: {Quote(Required(distro, "WSL distro is required."))}");
-                lines.Add($"    service: {Quote(Required(service, "systemd service is required."))}");
+                lines.Add($"    distro: {Quote(Required(spec.Distro, "WSL distro is required."))}");
+                lines.Add($"    service: {Quote(Required(spec.Service, "systemd service is required."))}");
                 break;
             case AutorunTaskType.WslCommand:
-                lines.Add($"    distro: {Quote(Required(distro, "WSL distro is required."))}");
-                lines.Add($"    command: {Quote(Required(command, "WSL command is required."))}");
+                lines.Add($"    distro: {Quote(Required(spec.Distro, "WSL distro is required."))}");
+                lines.Add($"    command: {Quote(Required(spec.Command, "WSL command is required."))}");
                 break;
             default:
-                throw new ArgumentOutOfRangeException(nameof(type), type, null);
+                throw new ArgumentOutOfRangeException(nameof(spec.Type), spec.Type, null);
         }
 
-        if (dependsOn.Count > 0)
+        if (spec.DependsOn.Count > 0)
         {
-            lines.Add($"    depends_on: [{string.Join(", ", dependsOn.Select(Quote))}]");
+            lines.Add($"    depends_on: [{string.Join(", ", spec.DependsOn.Select(Quote))}]");
         }
 
-        lines.Add($"    startup_delay: {delay}");
+        lines.Add($"    startup_delay: {spec.Delay}");
         lines.Add("    launch:");
-        lines.Add($"      run_as: {launch.RunAs.ToKey()}");
-        lines.Add($"      trigger: {launch.Trigger.ToKey()}");
-        lines.Add($"      window_mode: {launch.WindowMode.ToKey()}");
-        lines.Add($"      lifecycle: {launch.Lifecycle.ToKey()}");
+        lines.Add($"      run_as: {spec.Launch.RunAs.ToKey()}");
+        lines.Add($"      trigger: {spec.Launch.Trigger.ToKey()}");
+        lines.Add($"      window_mode: {spec.Launch.WindowMode.ToKey()}");
+        lines.Add($"      lifecycle: {spec.Launch.Lifecycle.ToKey()}");
         lines.Add("    health:");
-        lines.Add($"      type: {health.Type.ToKey()}");
-        switch (health.Type)
+        lines.Add($"      type: {spec.Health.Type.ToKey()}");
+        switch (spec.Health.Type)
         {
             case HealthCheckType.Process:
-                lines.Add($"      pattern: {Quote(Required(health.Pattern, "Process health pattern is required."))}");
+                lines.Add($"      pattern: {Quote(Required(spec.Health.Pattern, "Process health pattern is required."))}");
                 break;
             case HealthCheckType.Tcp:
-                lines.Add($"      host: {Quote(Required(health.Host, "TCP health host is required."))}");
-                lines.Add($"      port: {health.Port
+                lines.Add($"      host: {Quote(Required(spec.Health.Host, "TCP health host is required."))}");
+                lines.Add($"      port: {spec.Health.Port
                     ?? throw new ArgumentException("TCP health port is required.")}");
                 break;
             case HealthCheckType.WindowsService:
                 lines.Add($"      service: {Quote(Required(
-                    health.Service ?? service,
+                    spec.Health.Service ?? spec.Service,
                     "Windows service health name is required."))}");
                 break;
             case HealthCheckType.WslRunning:
-                lines.Add($"      distro: {Quote(Required(health.Distro ?? distro, "WSL health distro is required."))}");
+                lines.Add($"      distro: {Quote(Required(spec.Health.Distro ?? spec.Distro, "WSL health distro is required."))}");
                 break;
             case HealthCheckType.SystemdActive:
-                lines.Add($"      distro: {Quote(Required(health.Distro ?? distro, "systemd health distro is required."))}");
-                lines.Add($"      service: {Quote(Required(health.Service ?? service, "systemd health service is required."))}");
+                lines.Add($"      distro: {Quote(Required(spec.Health.Distro ?? spec.Distro, "systemd health distro is required."))}");
+                lines.Add($"      service: {Quote(Required(spec.Health.Service ?? spec.Service, "systemd health service is required."))}");
                 break;
             case HealthCheckType.WslProcess:
-                lines.Add($"      distro: {Quote(Required(health.Distro ?? distro, "WSL process distro is required."))}");
-                lines.Add($"      pattern: {Quote(Required(health.Pattern, "WSL process pattern is required."))}");
+                lines.Add($"      distro: {Quote(Required(spec.Health.Distro ?? spec.Distro, "WSL process distro is required."))}");
+                lines.Add($"      pattern: {Quote(Required(spec.Health.Pattern, "WSL process pattern is required."))}");
                 break;
             default:
-                throw new ArgumentOutOfRangeException(nameof(health.Type), health.Type, null);
+                throw new ArgumentOutOfRangeException(nameof(spec.Health.Type), spec.Health.Type, null);
         }
 
-        lines.Add($"      timeout: {health.TimeoutSeconds}");
+        lines.Add($"      timeout: {spec.Health.TimeoutSeconds}");
         return string.Join(newline, lines);
     }
 

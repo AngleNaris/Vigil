@@ -173,7 +173,7 @@ public partial class MainWindowViewModel
 
     private ManagedProcessSnapshot? ProcessFor(TaskRowViewModel? task)
     {
-        if (!IsLocalHostSelected || task?.Type is not ("windows" or "windows_service")
+        if (!IsLocalHostSelected || task?.Type is not ("windows" or "windows_service" or "wsl_boot" or "wsl_systemd" or "wsl_command")
             || ManagedProcessStatusText.StartsWith("常驻进程读取失败", StringComparison.Ordinal)) { return null; }
         var process = ManagedProcesses.FirstOrDefault(item => string.Equals(item.TaskName, task.Name, StringComparison.OrdinalIgnoreCase))?.Snapshot;
         return process is { ProcessCount: > 0 }

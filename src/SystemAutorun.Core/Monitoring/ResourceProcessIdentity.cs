@@ -9,7 +9,8 @@ public static class ResourceProcessIdentity
 {
     public static string? For(ManagedProcessSnapshot? process, DateTimeOffset at, int configurationGeneration = 0)
     {
-        if (process is null || process.Type is not ("windows" or "windows_service") || process.ProcessCount == 0
+        if (process is null || process.Type is not ("windows" or "windows_service" or "wsl_boot" or "wsl_systemd" or "wsl_command")
+            || process.ProcessCount == 0
             || process.Processes.Any(item => item.ProcessId <= 0 || item.StartedAt is null || item.StartedAt > at)
             || process.Processes.Select(item => item.ProcessId).Distinct().Count() != process.ProcessCount) { return null; }
         var value = string.Join(";", process.Processes.OrderBy(item => item.ProcessId)

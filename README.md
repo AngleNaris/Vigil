@@ -62,10 +62,11 @@ Vigil 主窗口收束为顶栏三个平级工作视图与按需弹出的独立�
 
 ## 共享 CLI 控制平面
 
-安装包随附独立 CUI 工具 `cli\vigil.exe`（不加载 WPF，运行时与 GUI、Agent 隔离封装）。所有写操作基于配置 SHA-256 修订与 `--yes` / `--operation-id` 防重放契约：
+安装包随附独立 CUI 工具 `cli\vigil.exe`（不加载 WPF，运行时与 GUI、Agent 隔离封装），并在内置帮助（`vigil help skill` / `vigil --help`）中直接附带供 AI Agent 与自动化脚本使用的 `autorun.yaml` 完整结构、JSON DTO 字段规范与防重放工作流。所有写操作基于配置 SHA-256 修订与 `--yes` / `--operation-id` 防重放契约：
 
 | 命令组 | 主要子命令 | 说明 |
 | --- | --- | --- |
+| `help` | `--help` / `help COMMAND` / `help skill` | 本地只读帮助与内置 AI 配置 Skill（完整 YAML 与 JSON DTO 规范） |
 | `task` | `list` / `show` / `start` / `stop` / `restart` / `add` / `remove` / `enable` / `disable` / `track` / `untrack` | 查询与控制本工作区纳管工作负载 |
 | `config` | `path` / `show [--raw]` / `validate --file YAML` / `apply --expected-revision SHA256 --yes` | 读取、校验并原子替换保留注释与格式的 `autorun.yaml` |
 | `settings` | `get` / `set` / `patch` | 管理 `autoRecoverFailedTasks`、`autoStartMissingOnLaunch` 等全局策略 |
@@ -118,7 +119,7 @@ vigil daemon stop --json
 安装包未附加商业代码签名，请仅从本仓库 [GitHub Releases](https://github.com/AngleNaris/Vigil/releases) 获取，并校验 SHA-256：
 
 ```text
-102c0d10353104f74831cad1011491e0a8ff4fb91d90d104f283cd4fd3939d35
+e86a6fa763ebc5401c127e568cd0e72f934734cee331d86c45c41a254181a05c
 ```
 
 ## 自己构建

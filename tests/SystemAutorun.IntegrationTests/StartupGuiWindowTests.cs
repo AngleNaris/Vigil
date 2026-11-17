@@ -61,28 +61,21 @@ public sealed class StartupGuiWindowTests
                 window.Show(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); await window.InitializationTask;
                 Assert.Equal(1, reader.Calls); Assert.Equal(4, model.Entries.Count); Assert.False(model.ShowDetails);
                 Assert.False(model.QueryPendingOperationCommand.CanExecute(null));
-                // R107: compact defaults and minimums; the shared owner bounds are tested separately.
-                Assert.Equal(800, window.Width); Assert.Equal(500, window.Height);
-                Assert.Equal(760, window.MinWidth); Assert.Equal(460, window.MinHeight); Assert.False(window.ShowInTaskbar);
+                Assert.Equal(680, window.Width); Assert.Equal(460, window.Height);
+                Assert.Equal(520, window.MinWidth); Assert.Equal(360, window.MinHeight); Assert.False(window.ShowInTaskbar);
                 model.SelectedEntry = model.Entries.Single(item => item.Name == "媒体库");
                 Assert.Equal("已禁用 · 备份未验证", model.SelectedEntry.StatusDescription);
-                Assert.False(model.DisableCommand.CanExecute(null)); Assert.False(model.RestoreCommand.CanExecute(null));
                 Assert.False(model.AddToTasksCommand.CanExecute(null));
-                foreach (var viewport in new[] { (Width: 760, Height: 460), (Width: 800, Height: 500), (Width: 1120, Height: 700), (Width: 1320, Height: 820), (Width: 1620, Height: 651) })
+                foreach (var viewport in new[] { (Width: 520, Height: 360), (Width: 680, Height: 460), (Width: 960, Height: 640), (Width: 1200, Height: 720) })
                 {
                     window.Width = viewport.Width; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                     window.Height = viewport.Height; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); window.UpdateLayout();
                     var dpi = VisualTreeHelper.GetDpi(window);
-                    // HWND bounds round to physical pixels: at 150%, 651 DIP is 976.5 px.
                     Assert.InRange(Math.Abs(viewport.Width - window.ActualWidth), 0, 1 / dpi.DpiScaleX);
                     Assert.InRange(Math.Abs(viewport.Height - window.ActualHeight), 0, 1 / dpi.DpiScaleY);
-                    Assert.Equal(460, window.MinHeight);
-                    // Layout rounding snaps the 1-DIP divider to physical pixels (2 px / 1.5 = 1.333 DIP at 150%).
-                    var roundedDivider = Math.Round(dpi.DpiScaleX) / dpi.DpiScaleX;
-                    Assert.True(window.StartupList.ActualWidth >= 280 - roundedDivider,
-                        $"List width {window.StartupList.ActualWidth}, DPI scale {dpi.DpiScaleX}, divider {roundedDivider}");
-                    Assert.True(window.StartupList.ActualHeight >= 156); // At least two 78-DIP rows in the compact viewport.
-                    if (viewport.Height >= 650) { Assert.True(window.StartupList.ActualHeight > 400); }
+                    Assert.Equal(360, window.MinHeight);
+                    Assert.True(window.StartupList.ActualWidth >= 500);
+                    Assert.True(window.StartupList.ActualHeight >= 200);
                     foreach (var button in Descendants(window).OfType<Button>().Where(button => button.IsVisible))
                     {
                         Assert.Null(button.FocusVisualStyle);
@@ -93,19 +86,11 @@ public sealed class StartupGuiWindowTests
                     if (probe is not null) { Capture(window, Path.Combine(probe, $"readonly-shell-{viewport.Width}x{viewport.Height}.png")); }
                     CaptureStateEvidence(window, $"startup-selected-{viewport.Width}x{viewport.Height}.png");
                 }
-                await model.InspectCommand.ExecuteAsync(null); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-                Assert.True(model.ShowDetails); Assert.True(window.DetailsText.IsVisible); Assert.True(window.DetailsText.IsReadOnly);
-                Assert.Contains("仅元数据", window.DetailsText.Text); Assert.DoesNotContain("System.Byte[]", window.DetailsText.Text);
-                Assert.Equal(ColorFocusRole.Caption, ColorStateAssist.GetRole(window.DetailsText));
-                Assert.Same(ColorStateAssist.GetCaptionBrush(window.DetailsText), window.DetailsCaption.Foreground);
-                Assert.Equal(((SolidColorBrush)window.FindResource("Semantic.Brush.TextPrimary")).Color, ((SolidColorBrush)window.DetailsText.Foreground).Color);
-                Assert.Equal(new Thickness(0), window.DetailsText.BorderThickness);
                 Assert.Equal(new Thickness(1), window.SearchSurface.BorderThickness);
                 Assert.Same(window.SearchBox.BorderBrush, window.SearchSurface.BorderBrush);
                 Assert.Equal(((SolidColorBrush)window.FindResource("Semantic.Brush.BorderSubtle")).Color, ((SolidColorBrush)window.SearchSurface.BorderBrush).Color);
-                CaptureStateEvidence(window, "startup-details-1620x651.png");
-                model.SearchText = "媒体"; model.CloseDetailsCommand.Execute(null); window.UpdateLayout();
-                Assert.False(window.DetailsText.IsVisible); Assert.Equal("媒体库", model.SelectedEntry!.Name); Assert.Equal("媒体", window.SearchBox.Text);
+                model.SearchText = "媒体"; window.UpdateLayout();
+                Assert.Equal("媒体库", model.SelectedEntry!.Name); Assert.Equal("媒体", window.SearchBox.Text);
                 model.SearchText = ""; window.UpdateLayout(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 Assert.Equal("媒体库", model.SelectedEntry!.Name);
                 var row = Assert.IsType<ListBoxItem>(window.StartupList.ItemContainerGenerator.ContainerFromItem(model.SelectedEntry));
@@ -207,16 +192,11 @@ public sealed class StartupGuiWindowTests
                 Assert.False(await model.AdoptAsync(new("window-unknown", AutorunTaskType.Windows,
                     Executable: Path.Combine(server.Root, "absent-never-run.exe"), HealthPattern: "absent-never-run.exe"), confirmed: true));
                 var originalId = Assert.IsType<string>(model.PendingOperationId);
-                window.MoreButton.ContextMenu.PlacementTarget = window.MoreButton; window.MoreButton.ContextMenu.IsOpen = true;
-                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-                Assert.Same(model.QueryPendingOperationCommand, window.OperationReceiptMenuItem.Command);
-                Assert.True(window.OperationReceiptMenuItem.IsEnabled);
-                window.MoreButton.ContextMenu.IsOpen = false;
-                await model.QueryPendingOperationCommand.ExecuteAsync(null); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-                Assert.Same(model, window.DataContext); Assert.True(window.DetailsText.IsVisible); Assert.True(window.DetailsText.IsReadOnly);
-                Assert.Contains(originalId, window.DetailsText.Text); Assert.Contains("unknown（结果未知）", window.DetailsText.Text);
-                Assert.True(model.HasUnknownAdoption); Assert.False(model.AddToTasksCommand.CanExecute(null));
-                model.CloseDetailsCommand.Execute(null); Assert.False(model.ShowDetails); Assert.Equal(originalId, model.PendingOperationId);
+                Assert.Contains(originalId, model.StatusMessage);
+                Assert.True(model.HasUnknownAdoption);
+                Assert.False(model.AddToTasksCommand.CanExecute(null));
+                Assert.Same(model.AddToTasksCommand, window.AdoptButton.Command);
+                Assert.False(window.AdoptButton.IsEnabled);
             }
             finally { window.Close(); }
         });

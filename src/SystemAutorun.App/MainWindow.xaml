@@ -218,7 +218,9 @@
                                  AutomationProperties.Name="服务列表" ItemsSource="{Binding TasksView}" SelectedItem="{Binding SelectedTask, Mode=TwoWay}"
                                  ItemContainerStyle="{StaticResource DashboardServiceItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True"
-                                 KeyboardNavigation.TabNavigation="Once" PreviewMouseRightButtonDown="ServiceList_PreviewMouseRightButtonDown">
+                                 KeyboardNavigation.TabNavigation="Once"
+                                 MouseDoubleClick="ServiceList_MouseDoubleClick"
+                                 PreviewMouseRightButtonDown="ServiceList_PreviewMouseRightButtonDown">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid ToolTip="{Binding ReasonLabel}">
@@ -259,6 +261,7 @@
                                     <MenuItem Header="启动" Command="{Binding StartCommand}" /><MenuItem Header="停止" Command="{Binding StopCommand}" />
                                     <MenuItem Header="重启" Command="{Binding RestartCommand}" /><Separator />
                                     <MenuItem Header="状态与最近启动记录" Command="{Binding ShowDetailCommand}" />
+                                    <MenuItem Header="编辑…" Command="{Binding EditTaskCommand}" />
                                     <MenuItem Style="{StaticResource TaskAppLaunchEntry}" /><MenuItem Style="{StaticResource TaskAutoRecoverEntry}" /><Separator />
                                     <MenuItem Header="启用" Command="{Binding EnableCommand}" /><MenuItem Header="禁用" Command="{Binding DisableCommand}" />
 
@@ -304,6 +307,7 @@
                                             <controls:LineIcon Kind="More" />
                                             <Button.ContextMenu><ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                                                 <MenuItem Header="状态与最近启动记录" Command="{Binding ShowDetailCommand}" />
+                                                <MenuItem Header="编辑…" Command="{Binding EditTaskCommand}" />
                                                 <MenuItem Header="启动" Command="{Binding StartCommand}" />
                                                 <MenuItem Header="停止" Command="{Binding StopCommand}" />
                                                 <MenuItem Style="{StaticResource TaskAppLaunchEntry}" /><MenuItem Style="{StaticResource TaskAutoRecoverEntry}" /><Separator />

@@ -4,7 +4,7 @@
         xmlns:controls="clr-namespace:SystemAutorun.App.Controls"
         xmlns:services="clr-namespace:SystemAutorun.App.Services"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="Windows 启动项" Width="800" Height="500" MinWidth="760" MinHeight="460"
+        Title="Windows 启动项" Width="680" Height="460" MinWidth="520" MinHeight="360"
         FontSize="13" FontFamily="{StaticResource Semantic.Font.Interface}"
         Foreground="{DynamicResource Semantic.Brush.TextPrimary}" TextElement.Foreground="{DynamicResource Semantic.Brush.TextPrimary}"
         WindowStyle="None" ResizeMode="CanResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
@@ -14,8 +14,15 @@
     </shell:WindowChrome.WindowChrome>
     <Window.InputBindings><KeyBinding Key="F5" Command="{Binding RefreshCommand}" /></Window.InputBindings>
     <Window.Resources>
-        <Style x:Key="StartupStatusText" TargetType="TextBlock">
+        <Style x:Key="StartupMetaText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextSecondary}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnActive}" /></DataTrigger>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnHover}" /></DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="StartupStatusText" TargetType="TextBlock" BasedOn="{StaticResource StartupMetaText}">
             <Style.Triggers>
                 <DataTrigger Binding="{Binding HasError}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.StatusFailed}" /></DataTrigger>
                 <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnActive}" /></DataTrigger>
@@ -23,7 +30,7 @@
             </Style.Triggers>
         </Style>
         <Style x:Key="StartupRow" TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="20,12" /><Setter Property="MinHeight" Value="78" />
+            <Setter Property="Padding" Value="18,9" /><Setter Property="MinHeight" Value="44" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
             <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.RowRest}" />
@@ -32,10 +39,8 @@
             <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderSubtle}" />
             <Setter Property="Background" Value="Transparent" /><Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
-                <Border x:Name="Row" services:SurfaceMotion.Fill="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,0,0,1">
-                    <Grid>
-                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
-                    </Grid>
+                <Border x:Name="Row" services:SurfaceMotion.Fill="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="0,0,0,1" SnapsToDevicePixels="True">
+                    <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
                 </Border>
                 <ControlTemplate.Triggers>
                     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" /></Trigger>
@@ -48,23 +53,26 @@
     <controls:PresencePanel MotionKind="Tool" IsPresented="True">
     <Border Background="{DynamicResource Semantic.Brush.WindowBackground}" BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="1">
         <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="20,0,6,0">
+            <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="18,0,6,0">
                 <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="218" /><ColumnDefinition Width="40" /><ColumnDefinition Width="40" /><ColumnDefinition Width="40" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <!-- R105: names the tool, not the app; the app brand belongs to the main window only. -->
-                    <TextBlock VerticalAlignment="Center" FontSize="14" Text="Windows 启动项" />
-                    <Border x:Name="SearchSurface" Grid.Column="1" Height="32" services:FrameHoverAssist.Track="True" BorderBrush="{Binding BorderBrush, ElementName=SearchBox}" BorderThickness="1" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <controls:LineIcon Kind="Search" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextHint}" />
-                            <TextBox x:Name="SearchBox" Grid.Column="1" Background="Transparent" BorderThickness="0" MinHeight="0" Height="30" Padding="2,0,8,0"
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="200" /><ColumnDefinition Width="38" /><ColumnDefinition Width="38" /><ColumnDefinition Width="38" /></Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock VerticalAlignment="Center" FontSize="14" Text="Windows 启动项" />
+                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" FontFamily="{StaticResource Semantic.Font.Monospace}"
+                                   Foreground="{DynamicResource Semantic.Brush.TextHint}" Text="{Binding CountMessage}" ToolTip="匹配显示数 / 当前已读数" />
+                    </StackPanel>
+                    <Border x:Name="SearchSurface" Grid.Column="2" Height="30" Margin="0,0,6,0" services:FrameHoverAssist.Track="True" BorderBrush="{Binding BorderBrush, ElementName=SearchBox}" BorderThickness="1" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <controls:LineIcon Kind="Search" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextHint}" />
+                            <TextBox x:Name="SearchBox" Grid.Column="1" Background="Transparent" BorderThickness="0" MinHeight="0" Height="28" Padding="2,0,8,0"
                                      VerticalAlignment="Center" VerticalContentAlignment="Center"
                                      BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" services:ColorStateAssist.RestingBorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" services:ColorStateAssist.FrameHovered="{Binding Path=(services:FrameHoverAssist.IsInside), ElementName=SearchSurface}"
-                                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="搜索当前已读启动项" ToolTip="搜索当前已读清单（Ctrl+F）；截断结果不代表全部 Windows 启动项" />
+                                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="搜索启动项" ToolTip="搜索启动项 (Ctrl+F)" />
                         </Grid>
                     </Border>
-                    <Button x:Name="FilterButton" Grid.Column="2" Style="{StaticResource DashboardIconButton}" Click="Filter_Click" ToolTip="{Binding SelectedFilter.Label, StringFormat=筛选：{0}}" AutomationProperties.Name="筛选启动项" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                        <controls:LineIcon Kind="Filter" Width="17" Height="17" />
+                    <Button x:Name="FilterButton" Grid.Column="3" Style="{StaticResource DashboardIconButton}" Width="38" Height="36" Click="Filter_Click" ToolTip="{Binding SelectedFilter.Label, StringFormat=筛选：{0}}" AutomationProperties.Name="筛选启动项" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <controls:LineIcon Kind="Filter" Width="16" Height="16" />
                         <Button.ContextMenu><ContextMenu Placement="Bottom">
                             <MenuItem Header="全部" Tag="" IsCheckable="True" Click="FilterOption_Click" />
                             <MenuItem Header="已登记" Tag="active" IsCheckable="True" Click="FilterOption_Click" />
@@ -72,122 +80,40 @@
                             <MenuItem Header="本配置纳管" Tag="managed" IsCheckable="True" Click="FilterOption_Click" />
                         </ContextMenu></Button.ContextMenu>
                     </Button>
-                    <Button Grid.Column="3" Style="{StaticResource DashboardIconButton}" Command="{Binding RefreshCommand}" ToolTip="刷新启动项（F5）" AutomationProperties.Name="刷新启动项" shell:WindowChrome.IsHitTestVisibleInChrome="True"><controls:LineIcon Kind="Refresh" Width="17" Height="17" /></Button>
-                    <Button Grid.Column="4" Style="{StaticResource DashboardIconButton}" Command="{Binding ShowDiagnosticsCommand}" Click="DetailsTrigger_Click" ToolTip="启动项诊断（只读）" AutomationProperties.Name="启动项诊断" shell:WindowChrome.IsHitTestVisibleInChrome="True"><controls:LineIcon Kind="Settings" Width="17" Height="17" /></Button>
-                    <Button Grid.Column="6" Style="{StaticResource DashboardIconButton}" Click="Close_Click" ToolTip="关闭启动项，返回主窗口（Esc）" AutomationProperties.Name="关闭启动项管理器" shell:WindowChrome.IsHitTestVisibleInChrome="True"><controls:LineIcon Kind="Close" Width="15" Height="15" /></Button>
+                    <Button Grid.Column="4" Style="{StaticResource DashboardIconButton}" Width="38" Height="36" Command="{Binding RefreshCommand}" ToolTip="刷新 (F5)" AutomationProperties.Name="刷新启动项" shell:WindowChrome.IsHitTestVisibleInChrome="True"><controls:LineIcon Kind="Refresh" Width="16" Height="16" /></Button>
+                    <Button Grid.Column="5" Style="{StaticResource DashboardIconButton}" Width="38" Height="36" Click="Close_Click" ToolTip="关闭 (Esc)" AutomationProperties.Name="关闭启动项管理器" shell:WindowChrome.IsHitTestVisibleInChrome="True"><controls:LineIcon Kind="Close" Width="14" Height="14" /></Button>
                 </Grid>
             </Border>
             <Grid Grid.Row="1">
-                <Grid.ColumnDefinitions><ColumnDefinition Width=".34*" MinWidth="280" MaxWidth="400" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,1,0">
-                    <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                        <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="16,0">
-                            <DockPanel>
-                                <Button x:Name="AdoptButton" DockPanel.Dock="Right" Style="{StaticResource DashboardIconButton}" Width="32" Height="32" Command="{Binding AddToTasksCommand}" ToolTip="纳管所选已登记项；只新增配置，不禁用原登记" AutomationProperties.Name="纳管所选启动项"><controls:LineIcon Kind="Plus" Width="16" Height="16" /></Button>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <controls:LineIcon Kind="Menu" Width="16" Height="16" Margin="4,0,8,0" />
-                                    <TextBlock VerticalAlignment="Center" FontFamily="{StaticResource Semantic.Font.Monospace}" Text="{Binding CountMessage}" ToolTip="匹配显示数 / 当前已读数；不是完整系统计数" />
-                                </StackPanel>
-                            </DockPanel>
-                        </Border>
-                        <Grid Grid.Row="1">
-                            <ListBox x:Name="StartupList" Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}" AutomationProperties.Name="Windows 启动项列表"
-                                     ItemsSource="{Binding EntriesView}" SelectedItem="{Binding SelectedEntry, Mode=TwoWay}" ItemContainerStyle="{StaticResource StartupRow}"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" KeyboardNavigation.TabNavigation="Once">
-                                <ListBox.ItemTemplate><DataTemplate>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" MaxWidth="145" /></Grid.ColumnDefinitions>
-                                        <Border Width="28" Height="28" HorizontalAlignment="Left" VerticalAlignment="Center" Background="Transparent" BorderThickness="1">
-                                            <Border.Style><Style TargetType="Border" BasedOn="{StaticResource InteractiveFrameBorderStyle}">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
-                                                        <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.InteractionOnActive}" />
-                                                        <Setter Property="services:SurfaceMotion.Stroke" Value="{DynamicResource Semantic.Brush.InteractionOnActive}" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
-                                                        <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.InteractionOnHover}" />
-                                                        <Setter Property="services:SurfaceMotion.Stroke" Value="{DynamicResource Semantic.Brush.InteractionOnHover}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style></Border.Style>
-                                            <controls:LineIcon Kind="{Binding Icon}" Width="17" Height="17" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
-                                        </Border>
-                                        <TextBlock Grid.Column="1" Margin="6,0,10,0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center" FontSize="16" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Source}" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="12">
-                                                <TextBlock.Style><Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextSecondary}" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnActive}" /></DataTrigger>
-                                                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnHover}" /></DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style></TextBlock.Style>
-                                            </TextBlock>
-                                            <TextBlock Text="{Binding StatusDescription}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" Style="{StaticResource StartupStatusText}" />
-                                        </StackPanel>
-                                    </Grid>
-                                </DataTemplate></ListBox.ItemTemplate>
-                            </ListBox>
-                            <TextBlock Margin="20,30" Text="{Binding EmptyStateTitle}" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" IsHitTestVisible="False" />
+                <ListBox x:Name="StartupList" Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}" AutomationProperties.Name="Windows 启动项列表"
+                         ItemsSource="{Binding EntriesView}" SelectedItem="{Binding SelectedEntry, Mode=TwoWay}" ItemContainerStyle="{StaticResource StartupRow}"
+                         MouseDoubleClick="StartupList_MouseDoubleClick"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" KeyboardNavigation.TabNavigation="Once">
+                    <ListBox.ItemTemplate><DataTemplate>
+                        <Grid ToolTip="{Binding Entry.RawCommand}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="Auto" MinWidth="120" MaxWidth="220" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <controls:LineIcon Kind="{Binding Icon}" Width="15" Height="15" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center" FontSize="13" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
+                            <TextBlock Grid.Column="2" Margin="12,0" Text="{Binding Target}" TextTrimming="CharacterEllipsis" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="12" Style="{StaticResource StartupMetaText}" />
+                            <TextBlock Grid.Column="3" Margin="0,0,12,0" Text="{Binding Source}" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="11" Style="{StaticResource StartupMetaText}" />
+                            <TextBlock Grid.Column="4" Text="{Binding StatusDescription}" FontSize="12" Style="{StaticResource StartupStatusText}" />
                         </Grid>
-                        <Border Grid.Row="2" MinHeight="40" BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,1,0,0" Padding="20,8"><TextBlock Text="Windows 启动项" FontSize="12" Foreground="{DynamicResource Semantic.Brush.TextHint}" /></Border>
-                    </Grid>
-                </Border>
-                <Grid Grid.Column="1">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" MinHeight="86" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="20,14">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <WrapPanel VerticalAlignment="Center" Visibility="{Binding HasSelection, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Border Width="38" Height="38" Margin="0,0,14,0" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1"><controls:LineIcon Kind="{Binding SelectedEntry.Icon}" Width="21" Height="21" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                                <TextBlock Text="{Binding SelectedEntry.Name}" FontSize="22" MaxWidth="250" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedEntry.Name}" Margin="0,3,20,3" VerticalAlignment="Center" />
-                                <TextBlock Text="{Binding SelectedEntry.SourceDetail}" FontSize="14" Margin="0,8,20,8" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" VerticalAlignment="Center" />
-                                <TextBlock Text="{Binding SelectedEntry.StatusDescription}" FontSize="14" Margin="0,8,14,8" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" VerticalAlignment="Center" />
-                            </WrapPanel>
-                            <!-- With no selection there is nothing to act on, so the row of disabled glyphs is hidden;
-                                 a selected entry keeps r2's disabled-with-explanation actions. -->
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Visibility="{Binding HasSelection, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Button Style="{StaticResource DashboardIconButton}" Command="{Binding DisableCommand}" ToolTip="{Binding NativeWriteExplanation}" AutomationProperties.Name="禁用启动登记（当前不可用，不是停止程序）"><controls:LineIcon Kind="Stop" Width="16" Height="16" /></Button>
-                                <Button Style="{StaticResource DashboardIconButton}" Command="{Binding RestoreCommand}" ToolTip="{Binding NativeWriteExplanation}" AutomationProperties.Name="从原备份恢复（当前不可用）"><controls:LineIcon Kind="Restart" Width="18" Height="18" /></Button>
-                                <Button x:Name="InspectButton" Style="{StaticResource DashboardIconButton}" Command="{Binding InspectCommand}" Click="DetailsTrigger_Click" ToolTip="复核所选元数据（只读，不检查备份或目标）" AutomationProperties.Name="复核所选启动项元数据"><controls:LineIcon Kind="Logs" Width="18" Height="18" /></Button>
-                                <Button x:Name="MoreButton" Style="{StaticResource DashboardIconButton}" Click="More_Click" ToolTip="更多只读观察与诊断" AutomationProperties.Name="更多启动项操作">
-                                    <controls:LineIcon Kind="More" Width="18" Height="18" />
-                                    <Button.ContextMenu><ContextMenu Placement="Bottom">
-                                        <MenuItem Header="观察原生双槽（只读）" Command="{Binding InspectNativeCommand}" Click="NativeDetails_Click" />
-                                        <MenuItem x:Name="OperationReceiptMenuItem" Header="查询原纳管操作回执（只读）" Command="{Binding QueryPendingOperationCommand}" Click="NativeDetails_Click" ToolTip="只查本窗口未知提交的原操作 ID，不重试或解除封锁" />
-                                        <MenuItem Header="查看诊断与原始元数据" Command="{Binding ShowDiagnosticsCommand}" Click="NativeDetails_Click" />
-                                    </ContextMenu></Button.ContextMenu>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-                    <Grid Grid.Row="1" Margin="20,16">
-                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420">
-                            <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding ShowDetails}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-                            <controls:LineIcon Kind="File" Width="24" Height="24" HorizontalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextHint}" />
-                            <TextBlock Margin="0,14,0,0" Text="选择启动项，然后按需复核元数据。&#10;原生写入尚未开放，不会直接修改 Windows 登记。" TextWrapping="Wrap" TextAlignment="Center" LineHeight="22" FontSize="14" Foreground="{DynamicResource Semantic.Brush.TextHint}" />
-                        </StackPanel>
-                        <Border Style="{StaticResource InteractiveFrameBorderStyle}" BorderThickness="1" Visibility="{Binding ShowDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <Grid>
-                                <Grid.RowDefinitions><RowDefinition Height="56" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                                <DockPanel Margin="16,0,8,0">
-                                    <Button DockPanel.Dock="Right" Style="{StaticResource DashboardIconButton}" Command="{Binding CloseDetailsCommand}" Click="CloseDetails_Click" ToolTip="返回清单（Esc），保留筛选与选择" AutomationProperties.Name="关闭启动项详情"><controls:LineIcon Kind="Back" Width="18" Height="18" /></Button>
-                                    <TextBlock x:Name="DetailsCaption" Text="{Binding DetailTitle}" FontSize="18" VerticalAlignment="Center" Foreground="{Binding Path=(services:ColorStateAssist.CaptionBrush), ElementName=DetailsText}" />
-                                </DockPanel>
-                                <TextBox x:Name="DetailsText" services:ColorStateAssist.Role="Caption" Foreground="{DynamicResource Semantic.Brush.TextPrimary}" Grid.Row="1" Margin="16,0,16,12" Text="{Binding DetailText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top"
-                                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="14" Background="Transparent" BorderThickness="0" Padding="0,4" AutomationProperties.Name="启动项只读详情" />
-                            </Grid>
-                        </Border>
-                    </Grid>
-                    <Border Grid.Row="2" BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,1,0,0" Padding="20,10">
-                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding ObservationLabel}" FontSize="12" Margin="0,2,18,0" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
-                            <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
-                        </Grid>
-                    </Border>
-                </Grid>
+                    </DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Margin="20,30" Text="{Binding EmptyStateTitle}" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" Visibility="{Binding IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" IsHitTestVisible="False" />
             </Grid>
+            <Border Grid.Row="2" BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,1,0,0" Padding="18,10">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock VerticalAlignment="Center" FontSize="12" Margin="0,0,12,0" Foreground="{DynamicResource Semantic.Brush.TextSecondary}"
+                               Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusMessage}" AutomationProperties.LiveSetting="Polite" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource DialogButtonStyle}" Margin="0,0,8,0" Click="Close_Click" Content="关闭" AutomationProperties.Name="关闭启动项管理器" />
+                        <Button x:Name="AdoptButton" Style="{StaticResource DialogPrimaryButtonStyle}" MinWidth="136" Command="{Binding AddToTasksCommand}"
+                                Content="添加到监控列表" ToolTip="将选中的启动项添加到监控列表" AutomationProperties.Name="添加到监控列表" />
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Grid>
     </Border>
     </controls:PresencePanel>

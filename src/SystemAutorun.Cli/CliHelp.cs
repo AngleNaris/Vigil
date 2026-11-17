@@ -10,6 +10,7 @@ internal static class CliHelp
     {
         if (words.Count == 0) { return null; }
         var topic = string.Join(' ', words);
+        if (topic.Equals("skill", StringComparison.OrdinalIgnoreCase)) { return "skill"; }
         var exact = CliArguments.Routes.FirstOrDefault(route => route.Key.Equals(topic, StringComparison.OrdinalIgnoreCase));
         if (exact is not null) { return exact.Key; }
         var child = CliArguments.Routes.FirstOrDefault(route => route.Key.StartsWith(topic + " ", StringComparison.OrdinalIgnoreCase));
@@ -25,6 +26,7 @@ internal static class CliHelp
     internal static string Render(string? topic)
     {
         if (topic is null) { return CliApplication.HelpText; }
+        if (topic == "skill") { return SkillText; }
         var route = CliArguments.Routes.FirstOrDefault(item => item.Key == topic);
         var text = new StringBuilder().AppendLine($"vigil {topic}");
         if (route is not null)
@@ -48,6 +50,7 @@ internal static class CliHelp
                 text.AppendLine("Input waiting is bounded by --timeout; no RPC is sent until input completes. Timeout/cancel does not prove server cancellation after dispatch.");
             }
             if (Example(route.Key) is { } example) { text.AppendLine("Input example (JSON):").AppendLine(example); }
+            if (SchemaSupplement(route.Key) is { } schema) { text.AppendLine(schema); }
         }
         var children = CliArguments.Routes.Where(item => item.Key.StartsWith(topic + " ", StringComparison.Ordinal)).ToArray();
         if (children.Length != 0)
@@ -59,10 +62,14 @@ internal static class CliHelp
         {
             text.AppendLine("Not implemented: startup disable/restore/rebuild and startup boot install/uninstall. Self changes use prepare + set, not enable/disable aliases.");
         }
+        if (topic == "config")
+        {
+            text.AppendLine("Configuration YAML schema & AI workflow: run vigil help skill.");
+        }
         text.AppendLine("Global: --root DIR --json --timeout SECONDS (>0..600, default 30) --non-interactive --help --version");
         text.AppendLine("Help is local: no root resolution, stdin/file reads, Agent connection, daemon start or UAC. Quote names with spaces; -- ends option parsing.");
         text.AppendLine("Exit: 0 success; 1 execution/partial failure; 2 input; 3 connection/protocol; 4 permission/confirmation; 5 conflict; 6 timeout/cancel/unknown. Ctrl+C ends watch/follow with 0.");
-        text.AppendLine("Use vigil help COMMAND for a command, or vigil --help for all contracts and coverage gaps.");
+        text.AppendLine("Use vigil help COMMAND, vigil help skill (AI skill & config schema), or vigil --help.");
         return text.ToString().TrimEnd();
     }
 
@@ -123,6 +130,326 @@ internal static class CliHelp
         "startup operation inspect" => "Strictly read-only diagnostic of an existing startup-disable UUIDv7; no replay, native writes, finalization or mutation flags. Exit 0 means complete diagnostic, NOT original success/authority. Unknown/busy/timeout/cancel: 6; missing/unverifiable: 1; permission: 4. Retain partial data when supplied; never upgrade unknown or infer write eligibility.",
         _ => throw new InvalidOperationException($"Missing help for {key}."),
     };
+
+    private static string? SchemaSupplement(string key) => key switch
+    {
+        "config validate" or "config apply" => YamlSchemaSection,
+        "task add" => TaskAddSchemaSection,
+        "settings set" => SettingsSetSchemaSection,
+        "host add" or "host update" or "host upsert" => HostSchemaSection,
+        _ => null,
+    };
+
+    internal const string SkillSummarySection = """
+        Built-in AI Skill & Configuration Schema (full guide: vigil help skill)
+        =======================================================================
+        1) Standard AI Agent Workflow (always read fresh revision before writing):
+           a. Locate workspace: `vigil config path --json` (uses --root, VIGIL_ROOT, or exe/default root).
+           b. Ensure Agent is up: `vigil daemon status --json` (only start explicitly: `vigil daemon start --json`).
+           c. Read state + CAS revision: `vigil config show --json` (raw YAML: `vigil config show --raw`).
+           d. Validate YAML (`<= 40 KiB`): `vigil config validate --file autorun.yaml --json`.
+           e. Commit YAML atomically: `vigil config apply --file autorun.yaml --expected-revision <SHA256> --yes --json`.
+              Or mutate single objects via JSON stdin (`--file -`): `task add`, `settings patch/set`, `host add/update/upsert`.
+           f. Re-read `revision` on exit 5 (`revision_conflict`). After exit 6 (timeout/unknown), inspect original `--operation-id` via `vigil operation show UUIDv7`.
+
+        2) autorun.yaml Schema (`version: 1` or `2`; top-level `version`, `settings`, `tasks` are REQUIRED):
+           version: 1
+           settings:
+             log_dir: logs                # string, optional (default: logs; relative to root or absolute, env-vars expanded)
+             backup_dir: backups          # string, optional (default: backups)
+             default_startup_delay: 5     # int >= 0, optional (default: 5 seconds)
+           tasks:                         # array (may be `[]`)
+             - name: example-app          # string, required, unique case-insensitively
+               type: windows              # REQUIRED: windows | windows_service | wsl_boot | wsl_systemd | wsl_command
+               enabled: true              # bool, optional (default: true; overridden by autorun.overrides.json)
+               expected_running: false    # bool, optional (default: false; tracks continuous liveness)
+               start_on_app_launch: null  # bool?, optional (null inherits global auto_start_missing_on_launch)
+               auto_recover: null         # bool?, optional (null inherits global auto_recover_failed_tasks)
+               description: "Summary"     # string?, optional
+               startup_delay: 5           # int >= 0, optional (inherits settings.default_startup_delay)
+               depends_on: []             # list<string>, optional (must exist and form a DAG)
+               # Required fields by `type`:
+               #   windows         -> exec (string); optional args (list<string>), working_dir (string)
+               #   windows_service -> service (string, Windows SCM service name)
+               #   wsl_boot        -> distro (string, e.g. Ubuntu)
+               #   wsl_systemd     -> distro (string) AND service (string)
+               #   wsl_command     -> distro (string) AND command (string)
+               exec: "C:\\Apps\\Example\\Example.exe"
+               args: ["--serve"]
+               working_dir: "C:\\Apps\\Example"
+               health:                    # REQUIRED object
+                 type: process            # REQUIRED: process | tcp | windows_service | wsl_running | systemd_active | wsl_process
+                 # Required fields by `health.type`:
+                 #   process         -> pattern (process/image name match)
+                 #   tcp             -> host (string) AND port (int 1..65535)
+                 #   windows_service -> service (or inherits task.service)
+                 #   wsl_running     -> distro (or inherits task.distro)
+                 #   systemd_active  -> distro AND service (each may inherit from task)
+                 #   wsl_process     -> distro (or inherits task.distro) AND pattern (string)
+                 pattern: "Example.exe"
+                 timeout: 30              # int > 0, optional (default: 30 seconds)
+               launch:                    # optional object (defaults depend on `type`)
+                 run_as: current_user     # current_user (alias: user) | system
+                 trigger: logon           # manual | logon | boot
+                 window_mode: hidden      # normal | minimized | hidden | no_console | tray
+                 lifecycle: tracked       # detached | tracked | service
+
+        3) JSON Payload DTO Schemas (`--file PATH` or `--file -`):
+           - task add (`AddTaskRequest`, camelCase keys):
+             `{"name","type","description","executable","arguments":[],"workingDirectory","distro","service","command","dependsOn":[],"startupDelay":5,"healthType","healthPattern","healthHost","healthPort":null,"healthTimeoutSeconds":30,"launch":{"runAs":"current_user","trigger":"logon","windowMode":"hidden","lifecycle":"tracked"},"expectedRunning":false,"startOnAppLaunch":null,"autoRecover":null}`
+           - settings patch (`ApplicationSettingsPatch`, camelCase): `{"autoStartMissingOnLaunch":true,"autoRecoverFailedTasks":true}`
+           - settings set (`ApplicationSettings`, snake_case): `{"auto_start_missing_on_launch":false,"auto_recover_failed_tasks":false,"remote_hosts":[...],"log_sources":[{"id":"app-log","kind":"file","taskName":null,"path":"logs\\app.log"}]}`
+           - host add/update/upsert (`RemoteHostDefinition`, snake_case): `{"id","name","enabled":false,"platform":"linux|windows","host","port":22,"user_name","authentication":"ssh_agent|private_key","identity_file":null,"known_hosts_file","connect_timeout_seconds":10,"command_timeout_seconds":20}`
+        """;
+
+    private const string YamlSchemaSection = """
+        Complete `autorun.yaml` Schema (`version: 1` or `2`):
+          - Required top-level keys: `version` (1 or 2), `settings` (object; empty `{}` allowed), `tasks` (list; `[]` allowed).
+          - `settings`: `log_dir` (default `logs`), `backup_dir` (default `backups`), `default_startup_delay` (int >= 0, default `5`).
+          - Each task item:
+              name (required, unique case-insensitively), type (windows|windows_service|wsl_boot|wsl_systemd|wsl_command),
+              enabled (bool, default true), expected_running (bool, default false),
+              start_on_app_launch (bool?), auto_recover (bool?), description (string?),
+              startup_delay (int >= 0), depends_on (list<string>, acyclic),
+              type fields: exec/args/working_dir (windows) | service (windows_service) | distro (wsl_*) | command (wsl_command),
+              health (required): {type: process|tcp|windows_service|wsl_running|systemd_active|wsl_process, pattern, host, port (1..65535), distro, service, timeout (int > 0, default 30)},
+              launch (optional): {run_as: current_user|user|system, trigger: manual|logon|boot, window_mode: normal|minimized|hidden|no_console|tray, lifecycle: detached|tracked|service}.
+          - Full AI skill & YAML/JSON examples: run `vigil help skill`.
+        """;
+
+    private const string TaskAddSchemaSection = """
+        Schema (`AddTaskRequest`, camelCase keys; enum values accept snake_case strings):
+          Required: name (string), type (windows|windows_service|wsl_boot|wsl_systemd|wsl_command),
+                    healthType (process|tcp|windows_service|wsl_running|systemd_active|wsl_process) + type-specific fields:
+            windows         -> executable (string), optional arguments (string[]), workingDirectory (string)
+            windows_service -> service (string)
+            wsl_boot        -> distro (string)
+            wsl_systemd     -> distro (string), service (string)
+            wsl_command     -> distro (string), command (string)
+          Health fields: healthPattern (process/wsl_process), healthHost + healthPort 1..65535 (tcp), healthTimeoutSeconds (>0, default 30).
+          Optional flags/deps: description, dependsOn (string[]), startupDelay (int >= 0), expectedRunning (bool), startOnAppLaunch (bool?), autoRecover (bool?).
+          Optional launch: {"runAs":"current_user|system","trigger":"manual|logon|boot","windowMode":"normal|minimized|hidden|no_console|tray","lifecycle":"detached|tracked|service"}.
+          Full guide: run `vigil help skill`.
+        """;
+
+    private const string SettingsSetSchemaSection = """
+        Schema (`ApplicationSettings`, snake_case top-level keys):
+          auto_start_missing_on_launch (bool), auto_recover_failed_tasks (bool),
+          remote_hosts (RemoteHostDefinition[]), log_sources ([{"id":"...","kind":"file","taskName":null,"path":"..."}]).
+          For modifying only booleans without touching hosts/logs, prefer `vigil settings patch`.
+          Full guide: run `vigil help skill`.
+        """;
+
+    private const string HostSchemaSection = """
+        Schema (`RemoteHostDefinition`, snake_case keys):
+          id (unique token, no spaces), name (non-empty), enabled (bool), platform ("windows"|"linux"),
+          host (token, no spaces), port (1..65535, default 22), user_name (token, no spaces),
+          authentication ("ssh_agent"|"private_key"), identity_file (required absolute non-reparse file for private_key),
+          known_hosts_file (required absolute non-reparse file), connect_timeout_seconds (1..60, default 10), command_timeout_seconds (2..120, default 20).
+          Full guide: run `vigil help skill`.
+        """;
+
+    private const string SkillText = """
+        # Vigil CLI Operator & Configuration Skill (Built-in)
+
+        Use `vigil.exe` when automating, inspecting, or configuring Vigil workspaces on Windows.
+        Do NOT write arbitrary guesses to `autorun.yaml` or `settings.json`; read the live configuration and revision first, validate, then commit with CAS protection.
+
+        ## 1. Non-Negotiable Operating Rules
+        - Always pass `--json` when scripting so outputs are single-line `schemaVersion=1` envelopes (`{"schemaVersion":1,"ok":...,"revision":...,"data":...,"error":...}`).
+        - Discover the active workspace before reading or writing:
+          `vigil config path --json`
+          Pass `--root <DIR>` explicitly (or rely on `VIGIL_ROOT` / package root). Never let commands implicitly launch UI or UAC.
+        - Explicitly verify/start the daemon before live operations:
+          `vigil daemon status --json`
+          If not running: `vigil daemon start --json` (starts `Vigil.Agent.exe` without GUI).
+        - Protect every write with optimistic concurrency (`--expected-revision <SHA256>`) and explicit confirmation (`--yes` where required):
+          Obtain `<SHA256>` from `revision` in a fresh `vigil config show --json` (or `startup list --json` / `recovery state --json`).
+          On exit code `5` (`revision_conflict` / `startup_entry_changed`), re-read and re-review; NEVER blind-retry.
+          On exit code `6` (timeout/unknown outcome), save `--operation-id` (or stderr admitted ID) and query `vigil operation show <UUIDv7> --json`.
+        - External direct edits to `autorun.yaml` race the Agent lock; prefer `vigil config show --raw` -> edit -> `vigil config validate` -> `vigil config apply --yes`.
+
+        ## 2. Complete `autorun.yaml` Schema (`version: 1`)
+        Constraints enforced by `ConfigurationLoader`:
+        - Max size: 40 KiB UTF-8 YAML.
+        - Top-level keys `version` (`1` or `2`), `settings` (object, `{}` minimum), and `tasks` (list, `[]` minimum) are ALL REQUIRED.
+        - Unknown keys are ignored cleanly by the loader (`IgnoreUnmatchedProperties`); duplicate YAML keys fail validation.
+
+        ```yaml
+        version: 1
+        settings:
+          log_dir: logs                # optional string (default: logs; relative to workspace root or absolute; %ENV% expanded)
+          backup_dir: backups          # optional string (default: backups)
+          default_startup_delay: 5     # optional int >= 0 (default: 5 seconds)
+        tasks:
+          # Example A: Windows GUI/background executable with TCP health check
+          - name: example-api
+            type: windows              # windows | windows_service | wsl_boot | wsl_systemd | wsl_command
+            enabled: true              # optional bool (default: true; autorun.overrides.json overrides this if present)
+            expected_running: true     # optional bool (default: false; true = monitor/recover while running)
+            start_on_app_launch: true  # optional bool? (null = inherit global auto_start_missing_on_launch)
+            auto_recover: true         # optional bool? (null = inherit global auto_recover_failed_tasks)
+            description: "Local HTTP API"
+            startup_delay: 3           # optional int >= 0 (default: settings.default_startup_delay)
+            depends_on: []             # optional list<string> of task names (must be acyclic)
+            exec: "C:\\Apps\\Api\\api.exe"     # REQUIRED for type: windows (%ENV% supported)
+            args: ["--host", "127.0.0.1"]      # optional list<string> (windows)
+            working_dir: "C:\\Apps\\Api"       # optional string (windows)
+            health:                            # REQUIRED object for every task
+              type: tcp                        # process | tcp | windows_service | wsl_running | systemd_active | wsl_process
+              host: "127.0.0.1"                # REQUIRED for health.type: tcp
+              port: 8080                       # REQUIRED int 1..65535 for health.type: tcp
+              timeout: 30                      # optional int > 0 (default: 30 seconds)
+            launch:                            # optional object
+              run_as: current_user             # current_user (alias: user) | system
+              trigger: logon                   # manual | logon | boot
+              window_mode: hidden              # normal | minimized | hidden | no_console | tray
+              lifecycle: tracked               # detached | tracked | service
+
+          # Example B: Windows Service (`type: windows_service`)
+          - name: postgresql-svc
+            type: windows_service
+            service: "postgresql-x64-16"       # REQUIRED for type: windows_service
+            expected_running: true
+            health:
+              type: windows_service            # service inherits from task.service unless overridden
+              timeout: 30
+            launch:
+              trigger: boot
+              lifecycle: service
+
+          # Example C: WSL Distro Boot (`type: wsl_boot`)
+          - name: wsl-ubuntu
+            type: wsl_boot
+            distro: "Ubuntu-24.04"             # REQUIRED for type: wsl_boot / wsl_systemd / wsl_command
+            expected_running: true
+            health:
+              type: wsl_running                # distro inherits from task.distro unless overridden
+              timeout: 45
+
+          # Example D: WSL systemd Service (`type: wsl_systemd`)
+          - name: wsl-docker
+            type: wsl_systemd
+            distro: "Ubuntu-24.04"
+            service: "docker.service"          # REQUIRED for type: wsl_systemd
+            depends_on: ["wsl-ubuntu"]
+            health:
+              type: systemd_active             # distro & service inherit from task unless overridden
+              timeout: 45
+
+          # Example E: WSL Command (`type: wsl_command`)
+          - name: wsl-worker
+            type: wsl_command
+            distro: "Ubuntu-24.04"
+            command: "cd /srv/worker && ./start.sh"   # REQUIRED for type: wsl_command
+            depends_on: ["wsl-ubuntu"]
+            health:
+              type: wsl_process
+              pattern: "worker"                # REQUIRED for process / wsl_process
+              timeout: 30
+        ```
+
+        ## 3. All Mutating JSON Input Schemas (`--file PATH` or `--file -`)
+        Enums in JSON accept `snake_case` strings (`windows_service`, `ssh_agent`, `no_console`, etc.).
+
+        ### `vigil task add --file task.json --expected-revision <SHA256> --json`
+        DTO `AddTaskRequest` (camelCase properties):
+        ```json
+        {
+          "name": "example-app",
+          "type": "windows",
+          "description": "Background worker",
+          "executable": "C:\\Apps\\Example\\Example.exe",
+          "arguments": ["--port", "8080"],
+          "workingDirectory": "C:\\Apps\\Example",
+          "distro": null,
+          "service": null,
+          "command": null,
+          "dependsOn": [],
+          "startupDelay": 5,
+          "healthType": "process",
+          "healthPattern": "Example.exe",
+          "healthHost": null,
+          "healthPort": null,
+          "healthTimeoutSeconds": 30,
+          "launch": {
+            "runAs": "current_user",
+            "trigger": "logon",
+            "windowMode": "hidden",
+            "lifecycle": "tracked"
+          },
+          "expectedRunning": true,
+          "startOnAppLaunch": true,
+          "autoRecover": true
+        }
+        ```
+
+        ### `vigil settings patch --file - --expected-revision <SHA256> --json`
+        DTO `ApplicationSettingsPatch` (camelCase properties; preserves `remote_hosts` & `log_sources`):
+        ```json
+        {"autoStartMissingOnLaunch": true, "autoRecoverFailedTasks": true}
+        ```
+
+        ### `vigil settings set --file settings.json --expected-revision <SHA256> --json`
+        DTO `ApplicationSettings` (snake_case properties; REPLACES entire preferences object — read `settings get --json` first and merge `data.preferences`):
+        ```json
+        {
+          "auto_start_missing_on_launch": true,
+          "auto_recover_failed_tasks": true,
+          "remote_hosts": [],
+          "log_sources": [
+            {"id": "api-log", "kind": "file", "taskName": "example-api", "path": "logs\\api.log"}
+          ]
+        }
+        ```
+        Note on `log_sources`: `kind` must be `file` (valid local DOS/root-relative path, max 32 sources); `wsl-journal` and `windows-event` reject paths and remain runtime-unavailable.
+
+        ### `vigil host add|update|upsert --file host.json --expected-revision <SHA256> --json`
+        DTO `RemoteHostDefinition` (snake_case properties; strictly read-only SSH observation via Windows OpenSSH):
+        ```json
+        {
+          "id": "home-nas",
+          "name": "Home NAS",
+          "enabled": true,
+          "platform": "linux",
+          "host": "192.0.2.25",
+          "port": 22,
+          "user_name": "ops",
+          "authentication": "ssh_agent",
+          "identity_file": null,
+          "known_hosts_file": "C:\\Keys\\known_hosts",
+          "connect_timeout_seconds": 10,
+          "command_timeout_seconds": 20
+        }
+        ```
+        Notes: `platform` = `linux` | `windows`; `authentication` = `ssh_agent` | `private_key` (if `private_key`, `identity_file` must be an existing absolute non-reparse file). `known_hosts_file` must be an existing absolute non-reparse file.
+
+        ## 4. Recommended End-to-End Recipe (PowerShell)
+        ```powershell
+        # 1. Start Agent if needed & snapshot workspace revision
+        $status = vigil daemon status --json | ConvertFrom-Json
+        if (-not $status.ok) { vigil daemon start --json | Out-Null }
+        $cfg = vigil config show --json | ConvertFrom-Json
+
+        # 2a. Apply edited autorun.yaml
+        vigil config validate --file autorun.yaml --json
+        vigil config apply --file autorun.yaml --expected-revision $cfg.revision --yes --json
+
+        # 2b. Or add one task cleanly from JSON stdin
+        @'
+        {"name":"my-app","type":"windows","executable":"C:\\Tools\\MyApp.exe","arguments":[],"healthType":"process","healthPattern":"MyApp.exe","expectedRunning":true}
+        '@ | vigil task add --file - --expected-revision $cfg.revision --json
+        ```
+
+        ## 5. Exit Codes Reference
+        - `0`: success (`diagnostic 0` on `startup operation inspect` is historical diagnostic completion, NOT authority).
+        - `1`: execution / partial failure / unavailable source.
+        - `2`: invalid argument / YAML or JSON schema validation error (`configuration_error` / `invalid_argument`).
+        - `3`: Agent connection / IPC protocol error / pending storage unavailable.
+        - `4`: permission denied or missing `--yes` confirmation.
+        - `5`: revision conflict (`revision_conflict` / `startup_entry_changed`) — reload fresh state and re-review.
+        - `6`: timeout / cancelled / busy / uncertain outcome — inspect admitted `--operation-id` via `vigil operation show <UUIDv7>`.
+        """;
 
     private static string? Example(string key) => key switch
     {

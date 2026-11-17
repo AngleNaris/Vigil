@@ -27,6 +27,7 @@ public partial class MainWindow : Window, IDialogScrimHost
     private readonly DispatcherTimer _dashboardClock;
     private readonly AgentStartupClient _startupClient;
     private readonly StartupCacheStore _startupCache;
+    private readonly ListReorderDragController<TaskRowViewModel> _serviceDragController;
     private bool _hasBeenPresented;
     private bool _refreshOnReturn;
     private bool _initialEntrancePlayed;
@@ -87,8 +88,23 @@ public partial class MainWindow : Window, IDialogScrimHost
         viewModel.ConfirmRequested = message => MessageDialog.ShowConfirm(DialogOwner, "确认任务操作", message);
         viewModel.StartupManagerRequested += (_, _) => OpenStartupManager();
         viewModel.AddProgramRequested += (_, _) => OpenAddProgram();
+        viewModel.EditTaskRequested += (_, task) => OpenEditProgram(task);
         viewModel.RemoteHostDialogRequested += (_, editingId) => OpenRemoteHosts(editingId);
         viewModel.AlertRequested += (_, message) => App.CurrentApp.ShowTrayInfo("家庭服务器告警", message);
+
+        _serviceDragController = new ListReorderDragController<TaskRowViewModel>(
+            ServiceList,
+            () => _viewModel.Tasks,
+            () => 0,
+            () => _viewModel.CanReorderTasks,
+            (from, to) => _viewModel.Tasks.Move(from, to),
+            item => _viewModel.SelectedTask = item,
+            PersistTaskOrderAsync,
+            active =>
+            {
+                if (active) { _viewModel.SuppressTaskReorder = true; }
+            });
+        _serviceDragController.Attach();
     }
 
     internal MainWindowViewModel ViewModel => _viewModel;
@@ -286,6 +302,34 @@ public partial class MainWindow : Window, IDialogScrimHost
     {
         var row = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
         if (row?.DataContext is TaskRowViewModel task) { _viewModel.SelectedTask = task; }
+    }
+
+    private void ServiceList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || _serviceDragController.IsDragging || _viewModel.IsBusy) { return; }
+        var row = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (row?.DataContext is TaskRowViewModel task)
+        {
+            _viewModel.SelectedTask = task;
+            if (_viewModel.EditTaskCommand.CanExecute(null))
+            {
+                _viewModel.EditTaskCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+    }
+
+    private async Task PersistTaskOrderAsync()
+    {
+        try
+        {
+            var ordered = _viewModel.Tasks.Select(item => item.Name).ToArray();
+            await _viewModel.ReorderTasksAsync(ordered);
+        }
+        finally
+        {
+            _viewModel.SuppressTaskReorder = false;
+        }
     }
 
     private void SearchSurface_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -552,6 +596,20 @@ public partial class MainWindow : Window, IDialogScrimHost
         if (App.CurrentApp.IsExiting) { return; }
         var previous = Keyboard.FocusedElement;
         try { _ = CreateAddProgramWindow().ShowDialog(); }
+        finally { RestoreDashboardFocus(previous); }
+    }
+
+    private void OpenEditProgram(Core.Models.AutorunTask task)
+    {
+        if (App.CurrentApp.IsExiting) { return; }
+        var previous = Keyboard.FocusedElement;
+        try
+        {
+            _ = new AddProgramWindow(task, updated => _viewModel.UpdateTaskAsync(task.Name, updated))
+            {
+                Owner = DialogOwner,
+            }.ShowDialog();
+        }
         finally { RestoreDashboardFocus(previous); }
     }
 

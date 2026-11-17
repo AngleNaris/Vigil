@@ -114,14 +114,53 @@ public sealed class WindowsTaskExecutor : ITaskExecutor, IDisposable
         }
     }
 
-    public IReadOnlyList<int> FindProcessIds(AutorunTask task) => task.Type switch
+    public IReadOnlyList<int> FindProcessIds(AutorunTask task)
     {
-        AutorunTaskType.Windows => _processIdentity.FindMatchingProcessIds(task),
-        AutorunTaskType.WindowsService when task.Service is not null =>
-            FindServiceProcessIds(task.Service),
-        _ when task.Distro is not null => _wsl.GetKeepaliveProcessIds(task.Distro),
-        _ => Array.Empty<int>(),
-    };
+        switch (task.Type)
+        {
+            case AutorunTaskType.Windows:
+                if (task.Health.Type is HealthCheckType.WslRunning or HealthCheckType.SystemdActive or HealthCheckType.WslProcess)
+                {
+                    var wslHost = FindWslHostProcessIds(task.Health.Distro ?? task.Distro);
+                    if (wslHost.Count > 0)
+                    {
+                        return wslHost;
+                    }
+                }
+
+                return _processIdentity.FindMatchingProcessIds(task);
+            case AutorunTaskType.WindowsService when task.Service is not null:
+                return FindServiceProcessIds(task.Service);
+            case AutorunTaskType.WslBoot or AutorunTaskType.WslSystemd or AutorunTaskType.WslCommand:
+                return FindWslHostProcessIds(task.Distro ?? task.Health.Distro);
+            default:
+                return Array.Empty<int>();
+        }
+    }
+
+    private IReadOnlyList<int> FindWslHostProcessIds(string? distro)
+    {
+        var ids = new List<int>();
+        foreach (var image in new[] { "vmmemWSL", "vmmem" })
+        {
+            foreach (var process in Process.GetProcessesByName(image))
+            {
+                using (process)
+                {
+                    ids.Add(process.Id);
+                }
+            }
+        }
+
+        if (ids.Count > 0)
+        {
+            return ids;
+        }
+
+        return string.IsNullOrWhiteSpace(distro)
+            ? Array.Empty<int>()
+            : _wsl.GetKeepaliveProcessIds(distro);
+    }
 
     public void Dispose() => _wsl.Dispose();
 

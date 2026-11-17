@@ -575,7 +575,7 @@ public sealed partial class CliApplication
     public const string HelpText = """
         vigil — shared Vigil control plane (Console; no WPF, no implicit daemon/UAC)
         Usage: vigil [--root DIR] COMMAND [NAME] [OPTIONS]
-        Help: vigil help [COMMAND] | vigil COMMAND --help (groups and individual commands).
+        Help: vigil help [COMMAND|skill] | vigil COMMAND --help (groups, commands, and built-in AI skill/schema).
               Help is local: no root/input access, Agent connection, daemon start or UAC.
           task list/show/start/stop/restart/start-missing
           task add --file JSON | remove/enable/disable/track/untrack NAME
@@ -693,7 +693,8 @@ public sealed partial class CliApplication
         Pending parity (NOT claimed implemented): startup disable/restore/rebuild, boot install/uninstall,
         system log provider adapters and offline/orphan recovery hint inventory.
         GUI self, shared logs and remote RPC are wired; implementation coverage is not complete GUI/CLI acceptance.
-        """;
+
+        """ + CliHelp.SkillSummarySection;
 
     private sealed class PipeTransport(AgentClient client) : ICliTransport
     {

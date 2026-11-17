@@ -75,6 +75,8 @@ internal sealed class TaskOrchestrator
         var health = await _healthProbe.CheckPassiveAsync(task, cancellationToken)
             .ConfigureAwait(false);
         var processIds = task.Type is AutorunTaskType.Windows or AutorunTaskType.WindowsService
+            || (health.Healthy && (task.Type is AutorunTaskType.WslBoot or AutorunTaskType.WslSystemd or AutorunTaskType.WslCommand
+                || task.Health.Type is HealthCheckType.WslRunning or HealthCheckType.SystemdActive or HealthCheckType.WslProcess))
             ? _executor.FindProcessIds(task) : Array.Empty<int>();
         var logs = await _log.ReadTailAsync(
             configuration.Settings.LogDirectory,

@@ -48,7 +48,7 @@ public static class AgentProtocol
 
     public static bool IsConfigurationMutation(string command) => command.ToLowerInvariant() is
         "settings-set" or "settings-patch" or "remote-upsert" or "remote-add" or "remote-update" or "remote-remove"
-        or "task-add" or "task-remove" or "task-monitor" or "task-enable" or "task-automation" or "configuration-apply" or "startup-adopt";
+        or "task-add" or "task-update" or "task-reorder" or "task-remove" or "task-monitor" or "task-enable" or "task-automation" or "configuration-apply" or "startup-adopt";
 
     // Wire operation-ID classification, NOT a promise of generic dispatcher wrapping.
     // self-set uses the context-aware self pipeline on the exact shared Journal once.

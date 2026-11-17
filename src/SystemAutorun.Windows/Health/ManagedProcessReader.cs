@@ -48,9 +48,13 @@ public sealed class ManagedProcessReader
             ? await healthProbe.CheckPassiveAsync(task, cancellationToken).ConfigureAwait(false)
             : HealthResult.Fail("disabled", "工作负载已禁用。");
         var capturedAt = DateTimeOffset.Now;
-        // A Windows wsl.exe keepalive belongs to the distro, not the guest task.
-        var processIds = task.Type is AutorunTaskType.Windows or AutorunTaskType.WindowsService
-            ? executor.FindProcessIds(task) : Array.Empty<int>();
+        var isWslWorkload = task.Type is AutorunTaskType.WslBoot or AutorunTaskType.WslSystemd or AutorunTaskType.WslCommand
+            || task.Health.Type is HealthCheckType.WslRunning or HealthCheckType.SystemdActive or HealthCheckType.WslProcess;
+        var processIds = task.Type is AutorunTaskType.Windows or AutorunTaskType.WindowsService && !isWslWorkload
+            ? executor.FindProcessIds(task)
+            : isWslWorkload && health.Healthy
+                ? executor.FindProcessIds(task)
+                : Array.Empty<int>();
         var processes = processIds
             .Distinct()
             .Select(processId => captures.GetOrAdd(processId, id => new(() => TryReadProcess(id, capturedAt, nativeSnapshot))).Value)

@@ -125,8 +125,28 @@ internal static class NativeWindowAssist
     {
         if (window.GetValue(ThemeSubscriptionProperty) is not null) { return; }
 
-        EventHandler onThemeChanged = (_, _) =>
+        EventHandler? onThemeChanged = null;
+        onThemeChanged = (_, _) =>
         {
+            if (window.Dispatcher.HasShutdownStarted || window.Dispatcher.HasShutdownFinished)
+            {
+                ThemeService.Changed -= onThemeChanged;
+                return;
+            }
+
+            if (!window.Dispatcher.CheckAccess())
+            {
+                _ = window.Dispatcher.BeginInvoke(() =>
+                {
+                    var deferredHandle = new WindowInteropHelper(window).Handle;
+                    if (deferredHandle != 0)
+                    {
+                        ApplyThemeAttribute(deferredHandle);
+                    }
+                });
+                return;
+            }
+
             var handle = new WindowInteropHelper(window).Handle;
             if (handle != 0)
             {

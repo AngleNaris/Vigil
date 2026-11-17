@@ -207,11 +207,11 @@
                 <UniformGrid Style="{StaticResource DialogActionsStyle}">
                     <Button Margin="4,0"
                             Style="{StaticResource DialogButtonStyle}"
-                            IsCancel="True">
-                        <TextBlock Margin="0,-1,0,1" VerticalAlignment="Center" Text="关闭" />
-                    </Button>
+                            IsCancel="True"
+                            Content="关闭" />
                     <Button x:Name="CheckUpdateButton"
                             Margin="4,0"
+                            Padding="12,4"
                             Style="{StaticResource DialogPrimaryButtonStyle}"
                             AutomationProperties.Name="检查更新"
                             IsDefault="True"

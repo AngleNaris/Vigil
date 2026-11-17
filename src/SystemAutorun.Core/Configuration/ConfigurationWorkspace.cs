@@ -71,6 +71,14 @@ public sealed partial class ConfigurationWorkspace
         AddTaskRequest request, string expectedRevision, CancellationToken cancellationToken = default) =>
         MutateAsync(expectedRevision, token => _editor.AddTaskAsync(_paths, request, token), cancellationToken);
 
+    public Task<WorkspaceMutation<ConfigurationMutationResult>> UpdateTaskAsync(
+        UpdateTaskRequest request, string expectedRevision, CancellationToken cancellationToken = default) =>
+        MutateAsync(expectedRevision, token => _editor.UpdateTaskAsync(_paths, request, token), cancellationToken);
+
+    public Task<WorkspaceMutation<ConfigurationMutationResult>> ReorderTasksAsync(
+        ReorderTasksRequest request, string expectedRevision, CancellationToken cancellationToken = default) =>
+        MutateAsync(expectedRevision, token => _editor.ReorderTasksAsync(_paths, request, token), cancellationToken);
+
     public Task<WorkspaceMutation<ConfigurationMutationResult>> RemoveTaskAsync(
         string name, string expectedRevision, CancellationToken cancellationToken = default) =>
         MutateAsync(expectedRevision, token => _editor.RemoveTaskAsync(_paths, name, token), cancellationToken);

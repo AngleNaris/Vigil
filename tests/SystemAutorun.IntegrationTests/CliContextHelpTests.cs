@@ -95,6 +95,32 @@ public sealed class CliContextHelpTests
     }
 
     [Fact]
+    public async Task BuiltInSkillAndSchemaAreExposedLocallyInGeneralSkillAndCommandHelp()
+    {
+        var app = LocalOnly();
+        using var input = new ForbiddenInput();
+        using var skillText = new StringWriter(); using var skillJson = new StringWriter(); using var error = new StringWriter();
+        Assert.Equal(0, await app.RunAsync(["help", "skill"], input, skillText, error));
+        Assert.Equal(0, await app.RunAsync(["skill", "--help", "--json", "--root", "invalid:root"], input, skillJson, error));
+        using var doc = JsonDocument.Parse(skillJson.ToString());
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        var rendered = doc.RootElement.GetProperty("data").GetProperty("text").GetString()!;
+        Assert.Equal(skillText.ToString().TrimEnd(), rendered);
+        Assert.Contains("version: 1", rendered);
+        Assert.Contains("windows_service", rendered);
+        Assert.Contains("wsl_systemd", rendered);
+        Assert.Contains("AddTaskRequest", rendered);
+        Assert.Contains("RemoteHostDefinition", rendered);
+        Assert.Contains("vigil help skill", CliApplication.HelpText);
+        Assert.Contains("autorun.yaml Schema", CliApplication.HelpText);
+
+        using var applyHelp = new StringWriter();
+        Assert.Equal(0, await app.RunAsync(["config", "apply", "--help"], input, applyHelp, error));
+        Assert.Contains("Complete `autorun.yaml` Schema", applyHelp.ToString());
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
     public void LiteralHelpOperandRemainsANameAndNormalMutationGuardsRemain()
     {
         var result = CliArguments.Parse(["task", "show", "--", "--help"]);

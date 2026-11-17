@@ -45,6 +45,7 @@ public partial class AddProgramWindow : SystemAutorun.App.Services.ToolWindow
     ];
 
     private readonly Func<AddTaskRequest, Task<bool>>? _save;
+    private readonly bool _expectedRunning = true;
     private bool _saving;
 
     public AddProgramWindow(StartupEntry? startupEntry = null, Func<AddTaskRequest, Task<bool>>? save = null)
@@ -72,6 +73,68 @@ public partial class AddProgramWindow : SystemAutorun.App.Services.ToolWindow
         // Adopted startup entries may carry arguments; show them rather than hide them under 高级.
         if (!string.IsNullOrWhiteSpace(startupEntry.Arguments)) { AdvancedExpander.IsExpanded = true; }
     }
+
+    public AddProgramWindow(AutorunTask existingTask, Func<AddTaskRequest, Task<bool>>? save = null)
+    {
+        ArgumentNullException.ThrowIfNull(existingTask);
+        _save = save;
+        _expectedRunning = existingTask.ExpectedRunning;
+        Closing += (_, args) => { if (_saving) { args.Cancel = true; } };
+        InitializeComponent();
+        Title = "编辑工作负载";
+        HeaderIcon.Kind = "Settings";
+        HeaderTitleText.Text = $"编辑工作负载 · {existingTask.Name}";
+        SaveButtonIcon.Kind = "Check";
+        SaveButtonLabel.Text = "保存";
+        System.Windows.Automation.AutomationProperties.SetName(SaveButton, "保存工作负载修改");
+
+        TaskTypeComboBox.ItemsSource = _taskTypes;
+        WindowModeComboBox.ItemsSource = _windowModes;
+        TaskTypeComboBox.SelectedItem = _taskTypes.FirstOrDefault(choice => choice.Value == existingTask.Type)
+            ?? _taskTypes[0];
+
+        NameTextBox.Text = existingTask.Name;
+        DescriptionTextBox.Text = existingTask.Description;
+        ExecutableTextBox.Text = existingTask.Executable ?? string.Empty;
+        ArgumentsTextBox.Text = FormatArguments(existingTask.Arguments);
+        WorkingDirectoryTextBox.Text = existingTask.WorkingDirectory ?? string.Empty;
+        WindowsServiceNameTextBox.Text = existingTask.Service ?? string.Empty;
+        DistroTextBox.Text = existingTask.Distro ?? existingTask.Health.Distro ?? string.Empty;
+        ServiceTextBox.Text = existingTask.Service ?? existingTask.Health.Service ?? string.Empty;
+        CommandTextBox.Text = existingTask.Command ?? string.Empty;
+        DependsOnTextBox.Text = string.Join(", ", existingTask.DependsOn);
+        DelayTextBox.Text = existingTask.StartupDelay.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        WindowModeComboBox.SelectedItem = _windowModes.FirstOrDefault(choice => choice.Value == existingTask.Launch.WindowMode)
+            ?? _windowModes[0];
+        if (LaunchTriggerComboBox.ItemsSource is IEnumerable<Choice<LaunchTrigger>> triggers)
+        {
+            LaunchTriggerComboBox.SelectedItem = triggers.FirstOrDefault(choice => choice.Value == existingTask.Launch.Trigger)
+                ?? triggers.FirstOrDefault();
+        }
+
+        if (HealthTypeComboBox.ItemsSource is IEnumerable<Choice<HealthCheckType>> healthChoices)
+        {
+            HealthTypeComboBox.SelectedItem = healthChoices.FirstOrDefault(choice => choice.Value == existingTask.Health.Type)
+                ?? healthChoices.FirstOrDefault();
+        }
+
+        HealthPatternTextBox.Text = existingTask.Health.Pattern ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(existingTask.Health.Host))
+        {
+            HealthHostTextBox.Text = existingTask.Health.Host;
+        }
+        HealthPortTextBox.Text = existingTask.Health.Port?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        HealthTimeoutTextBox.Text = existingTask.Health.TimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        StartOnAppLaunchCheckBox.IsChecked = existingTask.StartOnAppLaunch == true;
+        AutoRecoverCheckBox.IsChecked = existingTask.AutoRecover == true;
+    }
+
+    private static string FormatArguments(IReadOnlyList<string> arguments) =>
+        string.Join(" ", arguments.Select(arg => arg.Contains(' ') || arg.Contains('"')
+            ? $"\"{arg.Replace("\"", "\\\"")}\""
+            : arg));
 
     public AddTaskRequest? Request { get; private set; }
 
@@ -254,7 +317,7 @@ public partial class AddProgramWindow : SystemAutorun.App.Services.ToolWindow
                     type == AutorunTaskType.WindowsService
                         ? ProcessLifecycle.Service
                         : ProcessLifecycle.Tracked),
-                ExpectedRunning: true,
+                ExpectedRunning: _expectedRunning,
                 StartOnAppLaunch: trigger == LaunchTrigger.Logon && StartOnAppLaunchCheckBox.IsChecked == true,
                 AutoRecover: trigger == LaunchTrigger.Logon && AutoRecoverCheckBox.IsChecked == true);
             if (_save is not null)

@@ -372,7 +372,7 @@ public partial class MainWindowViewModel
 
     private ManagedProcessSnapshot? ManagedProcessForAlert(TaskRowViewModel row, string identity)
     {
-        if (!_processesAvailable || row.Type is not ("windows" or "windows_service")
+        if (!_processesAvailable || row.Type is not ("windows" or "windows_service" or "wsl_boot" or "wsl_systemd" or "wsl_command")
             || ManagedProcessStatusText.StartsWith("常驻进程读取失败", StringComparison.Ordinal))
         {
             return null;

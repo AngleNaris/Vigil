@@ -659,6 +659,46 @@ public sealed class R131VigilPolishAndThemeTests
             }
         });
 
+    [Fact]
+    public Task EmptyStateButtonTextIsVerticallyCentered() =>
+        ResourceDashboardWindowTests.WithResourceWindow(false, async (model, main, _) =>
+        {
+            ColorStateAssist.SetReduceMotion(main, true);
+            model.Tasks.Clear();
+            model.SelectedTask = null;
+            model.CurrentPage = MainWindowViewModel.WorkloadsPage;
+            main.Width = 1024;
+            main.Height = 548;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            main.UpdateLayout();
+
+            var button = Descendants(main.ServicesPage).OfType<Button>().Single(b =>
+                b.IsVisible && string.Equals(b.Content as string, model.DashboardEmptyActionLabel, StringComparison.Ordinal));
+            var (pixels, w, h) = CapturePixels(button);
+            var minTextY = h;
+            var maxTextY = -1;
+            for (var y = 2; y < h - 2; y++)
+            {
+                for (var x = 6; x < w - 6; x++)
+                {
+                    var i = (y * w + x) * 4;
+                    var lum = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+                    if (lum > 90)
+                    {
+                        if (y < minTextY) { minTextY = y; }
+                        if (y > maxTextY) { maxTextY = y; }
+                    }
+                }
+            }
+
+            Assert.True(minTextY < maxTextY, "Expected visible text pixels inside empty-state button.");
+            var topGap = minTextY;
+            var bottomGap = (h - 1) - maxTextY;
+            Assert.True(Math.Abs(topGap - bottomGap) <= 1,
+                $"Button text is not vertically centered: height={h}, minTextY={minTextY}, maxTextY={maxTextY}, topGap={topGap}, bottomGap={bottomGap}");
+            SaveEvidenceIfRequested(main, "empty-state-button.png");
+        });
+
     private static ContextMenuEventArgs CreateContextMenuArgs(DependencyObject originalSource)
     {
         var args = (ContextMenuEventArgs)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ContextMenuEventArgs));

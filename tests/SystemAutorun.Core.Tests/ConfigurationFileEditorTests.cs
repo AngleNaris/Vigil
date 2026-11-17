@@ -237,6 +237,34 @@ public sealed class ConfigurationFileEditorTests
             .GetTask("worker").ExpectedRunning);
     }
 
+    [Fact]
+    public async Task ReordersAndUpdatesTasksWhilePreservingCustomFields()
+    {
+        using var temp = new TempDirectory();
+        temp.Write("autorun.yaml", BaseConfig);
+        var paths = new ProjectPaths(temp.Path);
+        var editor = new ConfigurationFileEditor();
+
+        _ = await editor.ReorderTasksAsync(paths, new ReorderTasksRequest(["second", "worker"]));
+        var afterReorder = await new ConfigurationLoader().LoadAsync(temp.Path);
+        Assert.Equal(["second", "worker"], afterReorder.Tasks.Select(t => t.Name));
+        var yamlReordered = await File.ReadAllTextAsync(Path.Combine(temp.Path, "autorun.yaml"));
+        Assert.Contains("custom_field: keep", yamlReordered, StringComparison.Ordinal);
+
+        _ = await editor.UpdateTaskAsync(paths, new UpdateTaskRequest("second", new AddTaskRequest(
+            "second-renamed",
+            AutorunTaskType.WslBoot,
+            Description: "Updated WSL distro",
+            Distro: "Ubuntu-24.04",
+            HealthType: HealthCheckType.WslRunning,
+            ExpectedRunning: true)));
+        var afterUpdate = await new ConfigurationLoader().LoadAsync(temp.Path);
+        Assert.Equal(["second-renamed", "worker"], afterUpdate.Tasks.Select(t => t.Name));
+        var renamed = afterUpdate.GetTask("second-renamed");
+        Assert.Equal("Ubuntu-24.04", renamed.Distro);
+        Assert.True(renamed.ExpectedRunning);
+    }
+
     private const string BaseConfig = """
         version: 1
         settings:

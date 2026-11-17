@@ -154,7 +154,7 @@ public sealed class BootTaskScheduler
                 root.DeleteFolder(FolderPath, 0);
             }
         }
-        catch (COMException)
+        catch (Exception exception) when (IsMissing(exception) || exception is COMException)
         {
             // The task itself is already removed; an empty folder is harmless.
         }
@@ -206,7 +206,7 @@ public sealed class BootTaskScheduler
         {
             return service.GetFolder(FolderPath);
         }
-        catch (COMException)
+        catch (Exception exception) when (IsMissing(exception) || exception is COMException)
         {
             return root.CreateFolder("Vigil", Type.Missing);
         }
@@ -219,7 +219,7 @@ public sealed class BootTaskScheduler
             dynamic folder = service.GetFolder(FolderPath);
             return folder.GetTask(TaskName);
         }
-        catch (COMException)
+        catch (Exception exception) when (IsMissing(exception) || exception is COMException)
         {
             return null;
         }
@@ -235,7 +235,7 @@ public sealed class BootTaskScheduler
             executable = action.Path as string;
             arguments = action.Arguments as string;
         }
-        catch (COMException)
+        catch (Exception exception) when (IsMissing(exception) || exception is COMException)
         {
         }
 

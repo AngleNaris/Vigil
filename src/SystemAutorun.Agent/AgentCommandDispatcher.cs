@@ -137,6 +137,10 @@ internal sealed class AgentCommandDispatcher
                     RequiredName(request), RequiredRevision(request), cancellationToken).ConfigureAwait(false),
                 "task-add" => await _workspace.AddTaskAsync(
                     RequiredPayload<AddTaskRequest>(request), RequiredRevision(request), cancellationToken).ConfigureAwait(false),
+                "task-update" => await _workspace.UpdateTaskAsync(
+                    RequiredPayload<UpdateTaskRequest>(request), RequiredRevision(request), cancellationToken).ConfigureAwait(false),
+                "task-reorder" => await _workspace.ReorderTasksAsync(
+                    RequiredPayload<ReorderTasksRequest>(request), RequiredRevision(request), cancellationToken).ConfigureAwait(false),
                 "task-remove" => await _workspace.RemoveTaskAsync(
                     RequiredName(request), RequiredRevision(request), cancellationToken).ConfigureAwait(false),
                 "task-monitor" => await _workspace.SetExpectedRunningAsync(

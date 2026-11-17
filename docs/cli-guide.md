@@ -1,16 +1,19 @@
 # CLI 使用与覆盖说明
 
-CLI 入口为发行包内的 `cli\sautorun.exe`，不加载 WPF，不自动提权。下面的示例供审阅后使用，不会由帮助命令执行。当前语法以[路由表](<../src/SystemAutorun.Cli/CliArguments.cs>)和命令级帮助为准；工程与真实旅程的验收结果只记录在[验证账本](<../verification.md>)。
+CLI 入口为发行包内的 `cli\vigil.exe`，不加载 WPF，不自动提权。下面的示例供审阅后使用，不会由帮助命令执行。当前语法以[路由表](<../src/SystemAutorun.Cli/CliArguments.cs>)和命令级帮助为准；工程与真实旅程的验收结果只记录在[验证账本](<../verification.md>)。
 
-## 先查帮助
+## 先查帮助与内置 Skill
 
 ```powershell
-$cli = 'C:\path\to\package\cli\sautorun.exe'
+$cli = 'C:\path\to\package\cli\vigil.exe'
 & $cli --help
+& $cli help skill
 & $cli help task
 & $cli task add --help
 & $cli help startup self set --json
 ```
+
+`help skill` / `skill --help`（及 `vigil --help` 末尾摘要）内置了面向 AI Agent 与自动化脚本的操作规范、完整 `autorun.yaml` 结构说明以及 `task add` / `settings set|patch` / `host add|update|upsert` 的完整 JSON DTO 契约。
 
 `help COMMAND` 与 `COMMAND --help` 返回相同内容。命令组列出已注册的子命令；完整命令给出参数、确认要求、输入格式和适用示例。帮助可以省略实际执行时必需的名称、文件、修订和 `--yes`，也不会读取传入的文件/stdin、解析配置根、连接 Agent 或启动后台。未知主题仍返回参数错误，不把尚未实现的入口伪装成可用命令。
 

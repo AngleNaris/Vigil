@@ -397,7 +397,7 @@ internal sealed partial class AgentMonitor : IDisposable
         MonitoringDataGroup<IReadOnlyList<ManagedProcessSnapshot>> processes, DateTimeOffset at) =>
         processes.Available ? processes.Data?.FirstOrDefault(row => row.TaskIdentity == identity
             && string.Equals(row.TaskName, name, StringComparison.OrdinalIgnoreCase)
-            && row.Type == type && type is "windows" or "windows_service"
+            && row.Type == type && type is "windows" or "windows_service" or "wsl_boot" or "wsl_systemd" or "wsl_command"
             && at - row.CapturedAt <= MaximumFreshness && row.CapturedAt <= at) : null;
 
     private static MonitoringDataGroup<T> Empty<T>() where T : class => new(false, null, null, null, "not-yet-observed");

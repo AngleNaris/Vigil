@@ -375,6 +375,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public event EventHandler<TaskStatusDetail>? DetailRequested;
 
+    public event EventHandler<Core.Models.AutorunTask>? EditTaskRequested;
+
     public event EventHandler? StartupManagerRequested;
 
     public event EventHandler? AddProgramRequested;
@@ -641,6 +643,32 @@ public partial class MainWindowViewModel : ObservableObject
         });
     }
 
+    [RelayCommand(CanExecute = nameof(CanOperateSelectedTask))]
+    private async Task EditTaskAsync()
+    {
+        var selected = SelectedTask;
+        if (selected is null)
+        {
+            return;
+        }
+
+        var task = _monitoringConfiguration?.Configuration.Tasks.FirstOrDefault(item =>
+            string.Equals(item.Name, selected.Name, StringComparison.OrdinalIgnoreCase));
+        if (task is null)
+        {
+            await RunBusyAsync($"正在读取 {selected.Name} 配置...", async () =>
+            {
+                var detail = await _client.SendAsync<TaskStatusDetail>("status", selected.Name);
+                task = detail.Task;
+            });
+        }
+
+        if (task is not null)
+        {
+            EditTaskRequested?.Invoke(this, task);
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanRunLocalCommand))]
     private void OpenStartupManager() => StartupManagerRequested?.Invoke(this, EventArgs.Empty);
 
@@ -707,6 +735,15 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     internal string? PendingAddOperationId { get; private set; }
+    internal bool SuppressTaskReorder { get; set; }
+
+    internal bool CanReorderTasks =>
+        !IsBusy
+        && IsLocalHostSelected
+        && Tasks.Count > 1
+        && string.IsNullOrWhiteSpace(SearchText)
+        && string.IsNullOrEmpty(SelectedStatusFilter.Value)
+        && string.IsNullOrEmpty(SelectedTypeFilter.Value);
 
     internal async Task<bool> AddTaskAsync(AddTaskRequest request)
     {
@@ -724,6 +761,45 @@ public partial class MainWindowViewModel : ObservableObject
             await RefreshAfterConfigurationChangeAsync($"已添加工作负载 {request.Name}。");
         });
         return succeeded;
+    }
+
+    internal async Task<bool> UpdateTaskAsync(string originalName, AddTaskRequest request)
+    {
+        if (IsBusy)
+        { throw new InvalidOperationException("正在处理其他操作，输入已保留；待当前操作完成后再保存。"); }
+        var succeeded = false;
+        await RunBusyAsync($"正在保存 {request.Name}...", async () =>
+        {
+            _ = await _configuration.MutateAsync<ConfigurationMutationResult>("task-update",
+                payload: new UpdateTaskRequest(originalName, request));
+            succeeded = true;
+            await RefreshAfterConfigurationChangeAsync($"已保存工作负载 {request.Name} 的修改。");
+        });
+        return succeeded;
+    }
+
+    internal async Task ReorderTasksAsync(IReadOnlyList<string> orderedNames)
+    {
+        ArgumentNullException.ThrowIfNull(orderedNames);
+        if (IsBusy || !IsLocalHostSelected)
+        {
+            await RefreshDashboardCoreAsync();
+            return;
+        }
+
+        try
+        {
+            _ = await _configuration.MutateAsync<ConfigurationMutationResult>("task-reorder",
+                payload: new ReorderTasksRequest(orderedNames.ToArray()));
+            await RefreshAfterConfigurationChangeAsync("已保存服务排列顺序。");
+        }
+        catch (Exception exception)
+        {
+            await RefreshDashboardCoreAsync();
+            var message = AgentErrorMessages.Format(exception);
+            StatusMessage = $"调整服务顺序失败：{message}";
+            ErrorRequested?.Invoke(this, message);
+        }
     }
 
     internal async Task<ConfigurationWorkspaceSnapshot> PrepareRemoteHostsEditAsync()
@@ -1385,8 +1461,15 @@ public partial class MainWindowViewModel : ObservableObject
     {
         var selectedName = SelectedTask?.Name;
         var previous = SelectedTask;
+        var ordered = snapshots;
+        if (SuppressTaskReorder && Tasks.Count > 0)
+        {
+            var indices = Tasks.Select((row, index) => (row.Name, index))
+                .ToDictionary(item => item.Name, item => item.index, StringComparer.OrdinalIgnoreCase);
+            ordered = snapshots.OrderBy(item => indices.TryGetValue(item.Name, out var index) ? index : int.MaxValue).ToArray();
+        }
         // R106: reconcile by name instead of clearing, so a 10 s refresh never blanks the list.
-        Reconcile(Tasks, snapshots.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToArray(),
+        Reconcile(Tasks, ordered,
             snapshot => snapshot.Name.ToUpperInvariant(), row => row.Name.ToUpperInvariant(),
             (row, snapshot) => row.Update(snapshot), snapshot => new TaskRowViewModel(snapshot));
 

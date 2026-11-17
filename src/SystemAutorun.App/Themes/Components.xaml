@@ -236,7 +236,7 @@
         <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextPrimary}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderStrong}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,5" />
+        <Setter Property="Padding" Value="12,3.5,12,6" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="MinWidth" Value="32" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -272,7 +272,7 @@
         <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.PrimaryForeground}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.FocusAccent}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,5" />
+        <Setter Property="Padding" Value="12,3.5,12,6" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -305,7 +305,7 @@
         <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.StatusFailed}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.StatusFailed}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,5" />
+        <Setter Property="Padding" Value="12,3.5,12,6" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -341,12 +341,12 @@
 
     <Style x:Key="ToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="MinHeight" Value="30" />
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Padding" Value="10,3,10,5" />
     </Style>
 
     <Style x:Key="ToolbarPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
         <Setter Property="MinHeight" Value="30" />
-        <Setter Property="Padding" Value="12,4" />
+        <Setter Property="Padding" Value="12,3,12,5" />
     </Style>
 
     <Style x:Key="IconToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource MaterialDesignToolButton}">
