@@ -169,7 +169,9 @@ public partial class App : System.Windows.Application
     internal RecoveryViewModel? CreateRecoveryModel(string name) =>
         _paths is null || IsExiting ? null : new RecoveryViewModel(_paths, name);
 
-    internal async void RunElevated(string command)
+    internal async void RunElevated(string command) => _ = await RunElevatedCommandAsync(command);
+
+    internal async Task<bool> RunElevatedCommandAsync(string command)
     {
         var succeeded = await RunElevatedAsync(command, Array.Empty<string>());
         if (!succeeded && _mainWindow is not null)
@@ -179,6 +181,8 @@ public partial class App : System.Windows.Application
                 "管理员操作失败",
                 "提权 Helper 执行失败，详情已写入 %LOCALAPPDATA%\\Vigil\\logs\\elevated.log。");
         }
+
+        return succeeded;
     }
 
     // Compatibility bridge only. Native startup writes stay closed until the

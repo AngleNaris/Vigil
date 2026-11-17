@@ -198,7 +198,7 @@ internal static class CliHelp
            - task add (`AddTaskRequest`, camelCase keys):
              `{"name","type","description","executable","arguments":[],"workingDirectory","distro","service","command","dependsOn":[],"startupDelay":5,"healthType","healthPattern","healthHost","healthPort":null,"healthTimeoutSeconds":30,"launch":{"runAs":"current_user","trigger":"logon","windowMode":"hidden","lifecycle":"tracked"},"expectedRunning":false,"startOnAppLaunch":null,"autoRecover":null}`
            - settings patch (`ApplicationSettingsPatch`, camelCase): `{"autoStartMissingOnLaunch":true,"autoRecoverFailedTasks":true}`
-           - settings set (`ApplicationSettings`, snake_case): `{"auto_start_missing_on_launch":false,"auto_recover_failed_tasks":false,"remote_hosts":[...],"log_sources":[{"id":"app-log","kind":"file","taskName":null,"path":"logs\\app.log"}]}`
+           - settings set (`ApplicationSettings`, snake_case): `{"auto_start_missing_on_launch":false,"auto_recover_failed_tasks":false,"remote_hosts":[...],"log_sources":[{"id":"app-log","kind":"file","taskName":null,"path":"logs\\app.log"}],"alert_settings":{...}}`
            - host add/update/upsert (`RemoteHostDefinition`, snake_case): `{"id","name","enabled":false,"platform":"linux|windows","host","port":22,"user_name","authentication":"ssh_agent|private_key","identity_file":null,"known_hosts_file","connect_timeout_seconds":10,"command_timeout_seconds":20}`
         """;
 
@@ -235,7 +235,8 @@ internal static class CliHelp
     private const string SettingsSetSchemaSection = """
         Schema (`ApplicationSettings`, snake_case top-level keys):
           auto_start_missing_on_launch (bool), auto_recover_failed_tasks (bool),
-          remote_hosts (RemoteHostDefinition[]), log_sources ([{"id":"...","kind":"file","taskName":null,"path":"..."}]).
+          remote_hosts (RemoteHostDefinition[]), log_sources ([{"id":"...","kind":"file","taskName":null,"path":"..."}]),
+          alert_settings ({"enabled":true,"cpu_sustain_seconds":60,"host_cpu_percent":85,"host_memory_percent":85,"host_storage_percent":90,"process_cpu_percent":85,"process_memory_percent":25,"process_memory_mb":2048,"host_overrides":{},"task_overrides":{}}).
           For modifying only booleans without touching hosts/logs, prefer `vigil settings patch`.
           Full guide: run `vigil help skill`.
         """;
@@ -399,7 +400,23 @@ internal static class CliHelp
           "remote_hosts": [],
           "log_sources": [
             {"id": "api-log", "kind": "file", "taskName": "example-api", "path": "logs\\api.log"}
-          ]
+          ],
+          "alert_settings": {
+            "enabled": true,
+            "cpu_sustain_seconds": 60,
+            "host_cpu_percent": 85,
+            "host_memory_percent": 85,
+            "host_storage_percent": 90,
+            "process_cpu_percent": 85,
+            "process_memory_percent": 25,
+            "process_memory_mb": 2048,
+            "host_overrides": {
+              "local": {"cpu_percent": 90, "memory_percent": 90, "storage_percent": 95}
+            },
+            "task_overrides": {
+              "example-api": {"cpu_percent": 75, "memory_percent": 30, "memory_mb": 4096}
+            }
+          }
         }
         ```
         Note on `log_sources`: `kind` must be `file` (valid local DOS/root-relative path, max 32 sources); `wsl-journal` and `windows-event` reject paths and remain runtime-unavailable.

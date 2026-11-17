@@ -1,0 +1,382 @@
+<services:ToolWindow x:Class="SystemAutorun.App.Dialogs.AlertSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SystemAutorun.App.Controls"
+        xmlns:services="clr-namespace:SystemAutorun.App.Services"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="报警阈值设置"
+        Width="710"
+        Height="560"
+        MinWidth="600"
+        MinHeight="480"
+        FontSize="13"
+        FontFamily="{StaticResource Semantic.Font.Interface}"
+        Foreground="{DynamicResource Semantic.Brush.TextPrimary}"
+        TextElement.Foreground="{DynamicResource Semantic.Brush.TextPrimary}"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}"
+        BorderThickness="1"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="50" CornerRadius="0" GlassFrameThickness="0" ResizeBorderThickness="6" UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="AlertTargetMetaText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.TextHint}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="{StaticResource Semantic.Font.Monospace}" />
+            <Setter Property="FontSize" Value="11" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnActive}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.InteractionOnHover}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="AlertTargetRowStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="14,9" />
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+            <Setter Property="Foreground" Value="{DynamicResource Semantic.Brush.RowRest}" />
+            <Setter Property="services:ColorStateAssist.Role" Value="Row" />
+            <Setter Property="services:ColorStateAssist.HoverAction" Value="True" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Semantic.Brush.BorderSubtle}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="RowSurface"
+                                services:SurfaceMotion.Fill="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="0,0,0,1"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RowSurface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionHover}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="RowSurface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActive}" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True" />
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="RowSurface" Property="services:SurfaceMotion.Fill" Value="{DynamicResource Semantic.Brush.InteractionActiveHover}" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <controls:PresencePanel MotionKind="Tool" IsPresented="True">
+        <Grid Background="{DynamicResource Semantic.Brush.WindowBackground}"
+              TextElement.Foreground="{DynamicResource Semantic.Brush.TextPrimary}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="50" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="50" />
+            </Grid.RowDefinitions>
+
+            <Border Style="{StaticResource DialogHeaderBorderStyle}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource DashboardIconButton}"
+                            Command="{x:Static SystemCommands.CloseWindowCommand}"
+                            ToolTip="关闭"
+                            AutomationProperties.Name="关闭"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <controls:LineIcon Kind="Close" Width="15" Height="15" />
+                    </Button>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <controls:LineIcon Style="{StaticResource DialogHeaderIconStyle}" Kind="Warning" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Style="{StaticResource DialogTitleTextStyle}" Text="报警阈值设置" />
+                            <TextBlock Margin="0,2,0,0"
+                                       Style="{StaticResource HintTextStyle}"
+                                       FontSize="{StaticResource Primitive.Font.11}"
+                                       Text="配置全局默认或单个主机 / 服务的资源告警比例，触发时同步记录异常日志" />
+                        </StackPanel>
+                    </Grid>
+                </DockPanel>
+            </Border>
+
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="228" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border BorderBrush="{DynamicResource Semantic.Brush.BorderSubtle}" BorderThickness="0,0,1,0">
+                    <ListBox x:Name="TargetList"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             FocusVisualStyle="{x:Null}"
+                             ItemContainerStyle="{StaticResource AlertTargetRowStyle}"
+                             SelectionChanged="TargetList_SelectionChanged"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             AutomationProperties.Name="告警设置目标列表">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="22" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:LineIcon Kind="{Binding Icon}"
+                                                       Width="14"
+                                                       Height="14"
+                                                       HorizontalAlignment="Left"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Title}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Badge}"
+                                               Style="{StaticResource AlertTargetMetaText}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,14,20,14">
+                        <TextBlock x:Name="SelectedTargetTitle"
+                                   FontSize="15"
+                                   Text="全局默认阈值" />
+                        <TextBlock x:Name="SelectedTargetSubtitle"
+                                   Margin="0,4,0,12"
+                                   Style="{StaticResource HintTextStyle}"
+                                   FontSize="{StaticResource Primitive.Font.12}"
+                                   TextWrapping="Wrap"
+                                   Text="未单独覆盖的主机与服务将自动沿用以下默认阈值。" />
+
+                        <StackPanel x:Name="GlobalEditorPanel">
+                            <CheckBox x:Name="GlobalEnabledCheckBox"
+                                      Content="启用资源占用报警与异常日志记录"
+                                      AutomationProperties.Name="启用全局资源报警" />
+
+                            <TextBlock Margin="0,12,0,6"
+                                       Style="{StaticResource SectionTitleTextStyle}"
+                                       Text="主机（本机及远程服务器）默认阈值" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 告警 (%)" />
+                                    <TextBox x:Name="GlobalHostCpuTextBox" AutomationProperties.Name="全局主机 CPU 告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="内存告警 (%)" />
+                                    <TextBox x:Name="GlobalHostMemTextBox" AutomationProperties.Name="全局主机内存告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="磁盘告警 (%)" />
+                                    <TextBox x:Name="GlobalHostStorageTextBox" AutomationProperties.Name="全局主机磁盘告警比例" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Margin="0,16,0,8"
+                                       Style="{StaticResource SectionTitleTextStyle}"
+                                       Text="服务 / 进程（含 WSL）默认阈值" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 告警 (%)" />
+                                    <TextBox x:Name="GlobalProcCpuTextBox" AutomationProperties.Name="全局服务 CPU 告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="内存占比 (%)" />
+                                    <TextBox x:Name="GlobalProcMemTextBox" AutomationProperties.Name="全局服务内存占比告警" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="内存上限 (MB, 0=不限)" />
+                                    <TextBox x:Name="GlobalProcMemMbTextBox" AutomationProperties.Name="全局服务内存上限 MB" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 持续高占用秒数" />
+                                    <TextBox x:Name="GlobalSustainTextBox" AutomationProperties.Name="全局 CPU 持续时间秒数" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1"
+                                           Margin="14,18,0,0"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource HintTextStyle}"
+                                           FontSize="{StaticResource Primitive.Font.11}"
+                                           TextWrapping="Wrap"
+                                           Text="0 表示单次超过比例即触发告警；默认 60 秒可避免瞬时波动误报。" />
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel x:Name="HostOverridePanel" Visibility="Collapsed">
+                            <CheckBox x:Name="HostEnabledCheckBox"
+                                      Content="启用该主机的资源与离线告警"
+                                      Click="OverrideCheckBox_Click"
+                                      AutomationProperties.Name="启用该主机告警" />
+                            <CheckBox x:Name="HostCustomCheckBox"
+                                      Margin="0,10,0,14"
+                                      Content="为该主机单独自定义阈值（取消勾选则沿用全局默认）"
+                                      Click="OverrideCheckBox_Click"
+                                      AutomationProperties.Name="自定义主机阈值" />
+                            <Grid x:Name="HostFieldsGrid">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="12" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 告警 (%)" />
+                                    <TextBox x:Name="HostCpuTextBox" AutomationProperties.Name="主机 CPU 告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="内存告警 (%)" />
+                                    <TextBox x:Name="HostMemTextBox" AutomationProperties.Name="主机内存告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="磁盘告警 (%)" />
+                                    <TextBox x:Name="HostStorageTextBox" AutomationProperties.Name="主机磁盘告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="2" Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 持续时间 (秒)" />
+                                    <TextBox x:Name="HostSustainTextBox" AutomationProperties.Name="主机 CPU 持续时间秒数" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel x:Name="TaskOverridePanel" Visibility="Collapsed">
+                            <CheckBox x:Name="TaskEnabledCheckBox"
+                                      Content="启用该服务的资源占用告警"
+                                      Click="OverrideCheckBox_Click"
+                                      AutomationProperties.Name="启用该服务告警" />
+                            <CheckBox x:Name="TaskCustomCheckBox"
+                                      Margin="0,10,0,14"
+                                      Content="为该服务单独自定义阈值（取消勾选则沿用全局默认）"
+                                      Click="OverrideCheckBox_Click"
+                                      AutomationProperties.Name="自定义服务阈值" />
+                            <Grid x:Name="TaskFieldsGrid">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="12" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 告警 (%)" />
+                                    <TextBox x:Name="TaskCpuTextBox" AutomationProperties.Name="服务 CPU 告警比例" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="内存占比告警 (%)" />
+                                    <TextBox x:Name="TaskMemTextBox" AutomationProperties.Name="服务内存占比告警" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="内存绝对上限 (MB, 0=不限)" />
+                                    <TextBox x:Name="TaskMemMbTextBox" AutomationProperties.Name="服务内存上限 MB" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="2" Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 持续时间 (秒)" />
+                                    <TextBox x:Name="TaskSustainTextBox" AutomationProperties.Name="服务 CPU 持续时间秒数" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <Border Margin="0,16,0,0"
+                                Padding="10,8"
+                                Background="{DynamicResource Semantic.Brush.SurfaceInset}"
+                                Style="{StaticResource InteractiveFrameBorderStyle}"
+                                BorderThickness="1">
+                            <DockPanel>
+                                <controls:LineIcon DockPanel.Dock="Left"
+                                                   Width="15"
+                                                   Height="15"
+                                                   VerticalAlignment="Top"
+                                                   Margin="0,2,8,0"
+                                                   Foreground="{DynamicResource Semantic.Brush.TextSecondary}"
+                                                   Kind="Info" />
+                                <TextBlock Style="{StaticResource HintTextStyle}"
+                                           FontSize="{StaticResource Primitive.Font.11}"
+                                           TextWrapping="Wrap"
+                                           Text="触发的进程状态异常、主机离线及高资源占用告警均会自动写入异常日志（logs 目录），并在“异常日志”标签页中展示。" />
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <Border Grid.Row="2" Style="{StaticResource DialogFooterBorderStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="ResetDefaultButton"
+                            Style="{StaticResource DialogButtonStyle}"
+                            Content="恢复默认"
+                            Click="ResetDefault_Click"
+                            ToolTip="恢复为系统默认全局阈值并清除自定义覆盖"
+                            AutomationProperties.Name="恢复默认阈值" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Margin="0,0,8,0"
+                                Style="{StaticResource DialogButtonStyle}"
+                                IsCancel="True"
+                                Content="取消" />
+                        <Button x:Name="SaveButton"
+                                Style="{StaticResource DialogPrimaryButtonStyle}"
+                                IsDefault="True"
+                                Content="保存"
+                                Click="Save_Click"
+                                AutomationProperties.Name="保存报警阈值" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </controls:PresencePanel>
+</services:ToolWindow>

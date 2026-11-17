@@ -134,14 +134,15 @@
                                         <Separator />
                                         <MenuItem Header="自定义颜色…" Click="CustomAccent_Click" />
                                     </MenuItem>
+                                    <MenuItem Header="报警阈值设置…" Command="{Binding OpenAlertSettingsCommand}" />
                                     <Separator />
                                     <MenuItem x:Name="WindowsStartupMenu" Header="Windows 启动" SubmenuOpened="WindowsStartupMenu_SubmenuOpened">
                                         <MenuItem Header="启动项管理" Command="{Binding OpenStartupManagerCommand}" />
                                         <MenuItem x:Name="SelfStartupMenuItem" Header="登录自动启动" IsCheckable="True" Click="SelfStartup_Click"
                                                   ToolTip="登录 Windows 时自动启动并最小化到系统托盘" />
                                         <Separator />
-                                        <MenuItem Header="安装系统启动任务…" Click="InstallBoot_Click" />
-                                        <MenuItem Header="卸载系统启动任务…" Click="UninstallBoot_Click" />
+                                        <MenuItem x:Name="InstallBootMenuItem" Header="安装系统启动任务…" Click="InstallBoot_Click" />
+                                        <MenuItem x:Name="UninstallBootMenuItem" Header="卸载系统启动任务…" Click="UninstallBoot_Click" />
                                     </MenuItem>
                                     <MenuItem Header="打开日志目录" Command="{Binding OpenLogsCommand}" />
                                     <MenuItem Header="编辑配置文件" Command="{Binding EditConfigCommand}" />
@@ -263,6 +264,7 @@
                                     <MenuItem Header="重启" Command="{Binding RestartCommand}" /><Separator />
                                     <MenuItem Header="状态与最近启动记录" Command="{Binding ShowDetailCommand}" />
                                     <MenuItem Header="编辑…" Command="{Binding EditTaskCommand}" />
+                                    <MenuItem Header="报警阈值设置…" Command="{Binding OpenTaskAlertSettingsCommand}" />
                                     <MenuItem Style="{StaticResource TaskAppLaunchEntry}" /><MenuItem Style="{StaticResource TaskAutoRecoverEntry}" /><Separator />
                                     <MenuItem Header="启用" Command="{Binding EnableCommand}" /><MenuItem Header="禁用" Command="{Binding DisableCommand}" />
 
@@ -309,6 +311,7 @@
                                             <Button.ContextMenu><ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                                                 <MenuItem Header="状态与最近启动记录" Command="{Binding ShowDetailCommand}" />
                                                 <MenuItem Header="编辑…" Command="{Binding EditTaskCommand}" />
+                                                <MenuItem Header="报警阈值设置…" Command="{Binding OpenTaskAlertSettingsCommand}" />
                                                 <MenuItem Header="启动" Command="{Binding StartCommand}" />
                                                 <MenuItem Header="停止" Command="{Binding StopCommand}" />
                                                 <MenuItem Style="{StaticResource TaskAppLaunchEntry}" /><MenuItem Style="{StaticResource TaskAutoRecoverEntry}" /><Separator />

@@ -26,13 +26,6 @@ public partial class MainWindowViewModel
     private ConfigurationWorkspaceSnapshot? _appliedTasksConfiguration;
     private readonly Dictionary<string, DateTimeOffset> _highCpuSince = new(StringComparer.OrdinalIgnoreCase);
 
-    internal const double HighCpuThresholdPercent = 85.0;
-    internal const double HighCpuResetThresholdPercent = 80.0;
-    internal static readonly TimeSpan HighCpuSustainDuration = TimeSpan.FromMinutes(1);
-    internal const double HostHighMemoryThresholdPercent = 85.0;
-    internal const double ProcessHighMemoryThresholdPercent = 25.0;
-    internal const long ProcessHighMemoryThresholdBytes = 2L * 1024 * 1024 * 1024;
-
     // The Agent targets half-second resource samples and ten-second health observations. A visible
     // local view reads snapshots at the selected GUI cadence; full/history work stays on its own clock.
     internal static readonly TimeSpan LiveRefreshInterval = TimeSpan.FromSeconds(1);
@@ -315,35 +308,75 @@ public partial class MainWindowViewModel
     {
         var localTab = Hosts.FirstOrDefault(host => host.IsLocal);
         var hasLocalHost = _hostAvailable && _lastLocalHostSnapshot is { } local;
-        if (hasLocalHost)
+        var localThresholds = _alertSettings.ResolveHost("local");
+        if (localThresholds.Enabled && hasLocalHost)
         {
             var localSnapshot = _lastLocalHostSnapshot!;
-            var highCpu = TrackSustainedHighCpu("host:local", true, localSnapshot.CpuUsagePercent, localSnapshot.CapturedAt);
-            var highMem = localSnapshot.TotalMemoryBytes > 0 && localSnapshot.MemoryUsedPercent >= HostHighMemoryThresholdPercent;
-            localTab?.UpdateResourceAlert(highCpu || highMem,
-                FormatHostResourceSummary(highCpu, localSnapshot.CpuUsagePercent, highMem, localSnapshot.MemoryUsedPercent));
+            var highCpu = TrackSustainedHighCpu("host:local", true, localSnapshot.CpuUsagePercent, localSnapshot.CapturedAt,
+                localThresholds.CpuPercent, localThresholds.CpuResetPercent, localThresholds.CpuSustainDuration);
+            var highMem = localSnapshot.TotalMemoryBytes > 0 && localSnapshot.MemoryUsedPercent >= localThresholds.MemoryPercent;
+            var storagePercent = CalculateStorageUsagePercent(localSnapshot.Drives);
+            var highStorage = storagePercent is { } disk && disk >= localThresholds.StoragePercent;
+            var summary = FormatHostResourceSummary(highCpu, localSnapshot.CpuUsagePercent, localThresholds.CpuSustainDuration,
+                highMem, localSnapshot.MemoryUsedPercent, highStorage, storagePercent ?? 0);
+            localTab?.UpdateResourceAlert(highCpu || highMem || highStorage, summary);
+            RecordResourceAlertState("host:local", highCpu || highMem || highStorage,
+                FormatAlertKind(highCpu, highMem, highStorage), summary, "alerts", $"本机 ({localSnapshot.MachineName})");
         }
         else
         {
             _highCpuSince.Remove("host:local");
             localTab?.UpdateResourceAlert(false, string.Empty);
+            _activeResourceAlerts.Remove("host:local");
         }
 
         foreach (var tab in Hosts)
         {
             if (tab.IsLocal) { continue; }
             var key = "host:remote:" + tab.Id;
+            var hostThresholds = _alertSettings.ResolveHost(tab.Id);
+            if (!hostThresholds.Enabled)
+            {
+                _highCpuSince.Remove(key);
+                tab.UpdateResourceAlert(false, string.Empty);
+                _activeResourceAlerts.Remove(key);
+                _knownOfflineRemoteHosts.Remove(tab.Id);
+                continue;
+            }
+
+            if (tab.Definition is { Enabled: true } definition && tab.RemoteSnapshot is { Online: false } offlineRemote)
+            {
+                _highCpuSince.Remove(key);
+                tab.UpdateResourceAlert(false, string.Empty);
+                _activeResourceAlerts.Remove(key);
+                if (_knownOfflineRemoteHosts.Add(tab.Id) && _notificationsEnabled)
+                {
+                    var reason = string.IsNullOrWhiteSpace(offlineRemote.Error) ? "连接不可用" : offlineRemote.Error;
+                    WriteAlertLog("alerts", "ERROR", $"[主机离线告警] 远程主机 {tab.Name} ({definition.Host}) 不可用：{reason}");
+                    AlertRequested?.Invoke(this, $"远程主机 {tab.Name} 不可用：{reason}");
+                }
+                continue;
+            }
+
             if (tab.RemoteSnapshot is { Online: true } remote && IsRemoteObservationFresh(remote.CapturedAt))
             {
-                var highCpu = TrackSustainedHighCpu(key, true, remote.CpuUsagePercent, remote.CapturedAt);
-                var highMem = remote.TotalMemoryBytes > 0 && remote.MemoryUsedPercent >= HostHighMemoryThresholdPercent;
-                tab.UpdateResourceAlert(highCpu || highMem,
-                    FormatHostResourceSummary(highCpu, remote.CpuUsagePercent, highMem, remote.MemoryUsedPercent));
+                _knownOfflineRemoteHosts.Remove(tab.Id);
+                var highCpu = TrackSustainedHighCpu(key, true, remote.CpuUsagePercent, remote.CapturedAt,
+                    hostThresholds.CpuPercent, hostThresholds.CpuResetPercent, hostThresholds.CpuSustainDuration);
+                var highMem = remote.TotalMemoryBytes > 0 && remote.MemoryUsedPercent >= hostThresholds.MemoryPercent;
+                var storagePercent = CalculateStorageUsagePercent(remote.Drives);
+                var highStorage = storagePercent is { } disk && disk >= hostThresholds.StoragePercent;
+                var summary = FormatHostResourceSummary(highCpu, remote.CpuUsagePercent, hostThresholds.CpuSustainDuration,
+                    highMem, remote.MemoryUsedPercent, highStorage, storagePercent ?? 0);
+                tab.UpdateResourceAlert(highCpu || highMem || highStorage, summary);
+                RecordResourceAlertState(key, highCpu || highMem || highStorage,
+                    FormatAlertKind(highCpu, highMem, highStorage), summary, "alerts", $"远程主机 {tab.Name}");
             }
             else
             {
                 _highCpuSince.Remove(key);
                 tab.UpdateResourceAlert(false, string.Empty);
+                _activeResourceAlerts.Remove(key);
             }
         }
 
@@ -352,22 +385,67 @@ public partial class MainWindowViewModel
         {
             var identity = MonitoringTaskIdentity.For(row.Snapshot);
             var key = "task:" + identity;
-            var proc = ManagedProcessForAlert(row, identity);
+            var taskThresholds = _alertSettings.ResolveTask(row.Name);
+            var proc = taskThresholds.Enabled ? ManagedProcessForAlert(row, identity) : null;
             if (proc is not null)
             {
-                var highCpu = TrackSustainedHighCpu(key, proc.CpuUsageAvailable, proc.CpuUsagePercent, proc.CapturedAt);
+                var highCpu = TrackSustainedHighCpu(key, proc.CpuUsageAvailable, proc.CpuUsagePercent, proc.CapturedAt,
+                    taskThresholds.CpuPercent, taskThresholds.CpuResetPercent, taskThresholds.CpuSustainDuration);
                 double? memPct = localTotalMemory > 0 ? proc.WorkingSetBytes * 100d / localTotalMemory : null;
-                var highMem = proc.WorkingSetBytes >= ProcessHighMemoryThresholdBytes
-                    || memPct is >= ProcessHighMemoryThresholdPercent;
-                row.UpdateResourceAlert(highCpu || highMem,
-                    FormatProcessResourceSummary(highCpu, proc.CpuUsagePercent, highMem, proc.WorkingSetBytes, memPct));
+                var highMemByBytes = taskThresholds.MemoryBytes > 0 && proc.WorkingSetBytes >= taskThresholds.MemoryBytes;
+                var highMemByPct = memPct is >= 0 && memPct.Value >= taskThresholds.MemoryPercent;
+                var highMem = highMemByBytes || highMemByPct;
+                var summary = FormatProcessResourceSummary(highCpu, proc.CpuUsagePercent, taskThresholds.CpuSustainDuration,
+                    highMem, proc.WorkingSetBytes, memPct);
+                row.UpdateResourceAlert(highCpu || highMem, summary);
+                RecordResourceAlertState(key, highCpu || highMem,
+                    FormatAlertKind(highCpu, highMem, false), summary, row.Name, $"服务 {row.Name}");
             }
             else
             {
                 _highCpuSince.Remove(key);
                 row.UpdateResourceAlert(false, string.Empty);
+                _activeResourceAlerts.Remove(key);
             }
         }
+    }
+
+    private void RecordResourceAlertState(
+        string alertKey,
+        bool isHigh,
+        string kindSignature,
+        string summary,
+        string logCategory,
+        string targetLabel)
+    {
+        if (!isHigh || string.IsNullOrEmpty(summary))
+        {
+            _activeResourceAlerts.Remove(alertKey);
+            return;
+        }
+
+        var isNew = !_activeResourceAlerts.TryGetValue(alertKey, out var previous)
+            || !string.Equals(previous, kindSignature, StringComparison.Ordinal);
+        _activeResourceAlerts[alertKey] = kindSignature;
+        if (!isNew || !_notificationsEnabled)
+        {
+            return;
+        }
+
+        WriteAlertLog(logCategory, "WARN", $"[资源告警] {targetLabel} {summary}");
+        AlertRequested?.Invoke(this, $"{targetLabel} {summary}");
+    }
+
+    private static string FormatAlertKind(bool highCpu, bool highMem, bool highStorage) =>
+        $"{(highCpu ? "cpu" : "")}|{(highMem ? "mem" : "")}|{(highStorage ? "disk" : "")}";
+
+    private static double? CalculateStorageUsagePercent(IReadOnlyList<DriveStatusSnapshot>? drives)
+    {
+        if (drives is null || drives.Count == 0) { return null; }
+        var total = drives.Where(drive => drive.TotalBytes > 0).Sum(drive => drive.TotalBytes);
+        if (total <= 0) { return null; }
+        var used = drives.Where(drive => drive.TotalBytes > 0).Sum(drive => Math.Clamp(drive.TotalBytes - drive.FreeBytes, 0, drive.TotalBytes));
+        return Math.Clamp(used * 100d / total, 0, 100);
     }
 
     private ManagedProcessSnapshot? ManagedProcessForAlert(TaskRowViewModel row, string identity)
@@ -386,29 +464,42 @@ public partial class MainWindowViewModel
             && Fresh(process.CapturedAt) ? process : null;
     }
 
-    private bool TrackSustainedHighCpu(string key, bool available, double cpuPercent, DateTimeOffset observedAt)
+    private bool TrackSustainedHighCpu(
+        string key,
+        bool available,
+        double cpuPercent,
+        DateTimeOffset observedAt,
+        double cpuThreshold,
+        double resetThreshold,
+        TimeSpan sustainDuration)
     {
-        if (!available || double.IsNaN(cpuPercent) || double.IsInfinity(cpuPercent) || cpuPercent < HighCpuResetThresholdPercent)
+        if (!available || double.IsNaN(cpuPercent) || double.IsInfinity(cpuPercent) || cpuPercent < resetThreshold)
         {
             _highCpuSince.Remove(key);
             return false;
         }
 
-        if (cpuPercent >= HighCpuThresholdPercent)
+        if (cpuPercent >= cpuThreshold)
         {
             if (!_highCpuSince.TryGetValue(key, out var since) || observedAt < since)
             {
                 _highCpuSince[key] = observedAt;
-                return false;
+                return sustainDuration <= TimeSpan.Zero;
             }
 
-            return (observedAt - since) >= HighCpuSustainDuration;
+            return (observedAt - since) >= sustainDuration;
         }
 
-        return _highCpuSince.TryGetValue(key, out var existing) && (observedAt - existing) >= HighCpuSustainDuration;
+        return _highCpuSince.TryGetValue(key, out var existing) && (observedAt - existing) >= sustainDuration;
     }
 
-    private void SeedHighCpuFromRecentPlot(string key, IReadOnlyList<PlotPoint>? points, DateTimeOffset queryTo)
+    private void SeedHighCpuFromRecentPlot(
+        string key,
+        IReadOnlyList<PlotPoint>? points,
+        DateTimeOffset queryTo,
+        double cpuThreshold,
+        double resetThreshold,
+        TimeSpan sustainDuration)
     {
         if (points is not { Count: > 0 }) { return; }
         DateTimeOffset? tailLatest = null;
@@ -418,17 +509,17 @@ public partial class MainWindowViewModel
         for (var i = points.Count - 1; i >= 0; i--)
         {
             var point = points[i];
-            if (point.Value is not { } value || value < HighCpuResetThresholdPercent) { break; }
+            if (point.Value is not { } value || value < resetThreshold) { break; }
             if (tailEarliest is { } nextAt && (nextAt - point.At) > TimeSpan.FromSeconds(30)) { break; }
             if (tailLatest is null && point.At < freshnessFloor) { break; }
             tailLatest ??= point.At;
             tailEarliest = point.At;
-            if (value >= HighCpuThresholdPercent) { hasAboveTrigger = true; }
+            if (value >= cpuThreshold) { hasAboveTrigger = true; }
             if (point.BreakBefore) { break; }
         }
 
         if (hasAboveTrigger && tailLatest is { } latest && tailEarliest is { } earliest
-            && (latest - earliest) >= HighCpuSustainDuration)
+            && (latest - earliest) >= sustainDuration)
         {
             if (!_highCpuSince.TryGetValue(key, out var recorded) || earliest < recorded)
             {
@@ -437,20 +528,34 @@ public partial class MainWindowViewModel
         }
     }
 
-    private static string FormatHostResourceSummary(bool highCpu, double cpuPercent, bool highMem, double memoryPercent)
+    private static string FormatHostResourceSummary(
+        bool highCpu,
+        double cpuPercent,
+        TimeSpan cpuSustainDuration,
+        bool highMem,
+        double memoryPercent,
+        bool highStorage,
+        double storagePercent)
     {
-        if (!highCpu && !highMem) { return string.Empty; }
-        var parts = new List<string>(2);
-        if (highCpu) { parts.Add($"CPU 持续高占用 ({cpuPercent:0.0}% ≥ 1m)"); }
+        if (!highCpu && !highMem && !highStorage) { return string.Empty; }
+        var parts = new List<string>(3);
+        if (highCpu) { parts.Add(FormatCpuPart(cpuPercent, cpuSustainDuration)); }
         if (highMem) { parts.Add($"内存高占用 ({memoryPercent:0.0}%)"); }
+        if (highStorage) { parts.Add($"磁盘高占用 ({storagePercent:0.0}%)"); }
         return "资源高占用：" + string.Join(" · ", parts);
     }
 
-    private static string FormatProcessResourceSummary(bool highCpu, double cpuPercent, bool highMem, long workingSetBytes, double? memoryPercent)
+    private static string FormatProcessResourceSummary(
+        bool highCpu,
+        double cpuPercent,
+        TimeSpan cpuSustainDuration,
+        bool highMem,
+        long workingSetBytes,
+        double? memoryPercent)
     {
         if (!highCpu && !highMem) { return string.Empty; }
         var parts = new List<string>(2);
-        if (highCpu) { parts.Add($"CPU 持续高占用 ({cpuPercent:0.0}% ≥ 1m)"); }
+        if (highCpu) { parts.Add(FormatCpuPart(cpuPercent, cpuSustainDuration)); }
         if (highMem)
         {
             parts.Add(memoryPercent is { } pct
@@ -458,6 +563,18 @@ public partial class MainWindowViewModel
                 : $"内存高占用 ({FormatBytes(workingSetBytes)})");
         }
         return "资源高占用：" + string.Join(" · ", parts);
+    }
+
+    private static string FormatCpuPart(double cpuPercent, TimeSpan sustainDuration)
+    {
+        if (sustainDuration <= TimeSpan.Zero)
+        {
+            return $"CPU 高占用 ({cpuPercent:0.0}%)";
+        }
+
+        var seconds = (int)Math.Round(sustainDuration.TotalSeconds);
+        var durationText = seconds % 60 == 0 ? $"{seconds / 60}m" : $"{seconds}s";
+        return $"CPU 持续高占用 ({cpuPercent:0.0}% ≥ {durationText})";
     }
 
     private TaskRuntimeObservation? RuntimeFor(TaskRowViewModel? task)

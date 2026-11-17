@@ -34,6 +34,22 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IRemoteHostReader _remoteHostReader;
     private readonly HashSet<string> _knownFailures =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _activeResourceAlerts =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _knownOfflineRemoteHosts =
+        new(StringComparer.OrdinalIgnoreCase);
+    private ResourceAlertSettings _alertSettings = new();
+    private readonly FileLog _alertFileLog = new();
+    private Task _alertLogWriteTask = Task.CompletedTask;
+    private readonly object _alertLogSync = new();
+
+    internal ResourceAlertSettings CurrentAlertSettings => _alertSettings;
+    internal Task FlushAlertLogsAsync() => _alertLogWriteTask;
+    internal bool NotificationsEnabledForTest
+    {
+        get => _notificationsEnabled;
+        set => _notificationsEnabled = value;
+    }
     private IReadOnlyDictionary<string, NetworkStatusSnapshot> _lastNetworks =
         new Dictionary<string, NetworkStatusSnapshot>(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<RemoteHostDefinition> _remoteHostDefinitions =
@@ -387,6 +403,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public event EventHandler<string?>? RemoteHostDialogRequested;
 
+    public event EventHandler<string?>? AlertSettingsRequested;
+
     public event EventHandler<string>? AlertRequested;
 
     public Func<string, bool>? ConfirmRequested { get; set; }
@@ -519,6 +537,25 @@ public partial class MainWindowViewModel : ObservableObject
         var target = tab ?? SelectedHostTab;
         if (target is null || target.IsLocal) { return; }
         RemoteHostDialogRequested?.Invoke(this, target.Id);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunGlobalCommand))]
+    private void OpenAlertSettings() => AlertSettingsRequested?.Invoke(this, null);
+
+    [RelayCommand(CanExecute = nameof(CanOperateSelectedTask))]
+    private void OpenTaskAlertSettings()
+    {
+        if (SelectedTask is { } task)
+        {
+            AlertSettingsRequested?.Invoke(this, "task:" + task.Name);
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRunGlobalCommand))]
+    private void OpenHostAlertSettings(HostTabViewModel? tab)
+    {
+        var target = tab ?? SelectedHostTab;
+        AlertSettingsRequested?.Invoke(this, target is null ? "host:local" : "host:" + target.Id);
     }
 
     [RelayCommand(CanExecute = nameof(CanEditRemoteHost))]
@@ -852,6 +889,45 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    internal async Task<ConfigurationWorkspaceSnapshot> PrepareAlertSettingsEditAsync()
+    {
+        await FlushSettingsAsync();
+        return await ReloadConfigurationCoreAsync();
+    }
+
+    internal async Task ApplyAlertSettingsAsync(
+        ResourceAlertSettings settings,
+        ConfigurationWorkspaceSnapshot original)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var normalized = settings.CloneNormalized();
+        ResourceAlertSettingsValidator.Validate(normalized);
+        await FlushSettingsAsync();
+        try
+        {
+            _ = await _configuration.MutateAsync<ApplicationSettings>(
+                "settings-set",
+                payload: original.Preferences with { AlertSettings = normalized },
+                expectedRevision: original.Revision);
+        }
+        catch
+        {
+            _settingsGeneration++;
+            try { _ = await ReloadConfigurationCoreAsync(); } catch (Exception) { }
+            throw;
+        }
+
+        try
+        {
+            _ = await ReloadConfigurationCoreAsync();
+            StatusMessage = "已保存报警阈值设置。";
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"报警阈值已保存，但状态重读失败；请刷新核对：{exception.Message}";
+        }
+    }
+
     [RelayCommand]
     private void EditConfig() => Process.Start(new ProcessStartInfo
     {
@@ -1034,6 +1110,12 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 _remoteHostDefinitions = snapshot.Preferences.RemoteHosts.ToArray();
                 RebuildHostTabs();
+            }
+            var incomingAlerts = (snapshot.Preferences.AlertSettings ?? new ResourceAlertSettings()).CloneNormalized();
+            if (!Equals(_alertSettings, incomingAlerts))
+            {
+                _alertSettings = incomingAlerts;
+                UpdateResourceAlerts();
             }
         }
         finally { _loadingSettings = wasLoading; }
@@ -1654,25 +1736,67 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void TrackFailures(bool notify)
     {
-        var current = Tasks
+        var failing = Tasks
             .Where(task => task.Enabled && task.Snapshot.HealthObserved && !task.Healthy)
+            .ToArray();
+        var current = failing
             .Select(task => task.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (notify)
         {
-            var newlyFailed = current.Except(_knownFailures, StringComparer.OrdinalIgnoreCase).ToArray();
+            var newlyFailed = failing
+                .Where(task => !_knownFailures.Contains(task.Name))
+                .ToArray();
             if (newlyFailed.Length > 0)
             {
+                foreach (var task in newlyFailed)
+                {
+                    WriteAlertLog(
+                        task.Name,
+                        "ERROR",
+                        $"[状态告警] 工作负载 {task.Name} 状态异常：{task.ReasonLabel} ({task.Detail})");
+                }
+
                 AlertRequested?.Invoke(
                     this,
                     newlyFailed.Length == 1
-                        ? $"工作负载 {newlyFailed[0]} 状态异常。"
+                        ? $"工作负载 {newlyFailed[0].Name} 状态异常。"
                         : $"{newlyFailed.Length} 个工作负载出现异常。");
             }
         }
 
         _knownFailures.Clear();
         _knownFailures.UnionWith(current);
+    }
+
+    private void WriteAlertLog(string category, string levelPrefix, string message)
+    {
+        var logDirectory = _monitoringConfiguration?.Configuration.Settings.LogDirectory;
+        if (string.IsNullOrWhiteSpace(logDirectory))
+        {
+            logDirectory = Path.Combine(_paths.RootDirectory, "logs");
+        }
+
+        var line = $"{levelPrefix}: {message}";
+        lock (_alertLogSync)
+        {
+            _alertLogWriteTask = WriteAlertLogCoreAsync(_alertLogWriteTask, logDirectory, category, line);
+        }
+    }
+
+    private async Task WriteAlertLogCoreAsync(Task previous, string logDirectory, string category, string message)
+    {
+        try { await previous.ConfigureAwait(false); }
+        catch (Exception) { }
+
+        try
+        {
+            await _alertFileLog.WriteAsync(logDirectory, category, message).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning("Alert log write failed: {0}", exception.Message);
+        }
     }
 
     private static string FormatUptime(TimeSpan uptime)
@@ -1714,6 +1838,9 @@ public partial class MainWindowViewModel : ObservableObject
         ManageRemoteHostsCommand.NotifyCanExecuteChanged();
         EditRemoteHostCommand.NotifyCanExecuteChanged();
         RemoveRemoteHostCommand.NotifyCanExecuteChanged();
+        OpenAlertSettingsCommand.NotifyCanExecuteChanged();
+        OpenTaskAlertSettingsCommand.NotifyCanExecuteChanged();
+        OpenHostAlertSettingsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(IsSelectedTaskRunning));
         OnPropertyChanged(nameof(DashboardPrimaryPowerCommand));
         OnPropertyChanged(nameof(DashboardPrimaryPowerIcon));

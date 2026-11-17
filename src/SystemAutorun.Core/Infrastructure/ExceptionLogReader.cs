@@ -244,7 +244,7 @@ public sealed class ExceptionLogReader
             return ExceptionLogLevel.Error;
         }
 
-        if (ContainsAny(value, "warning", "warn:", "retry", "degraded", "unexpectedly"))
+        if (ContainsAny(value, "warning", "warn:", "retry", "degraded", "unexpectedly", "告警"))
         {
             return ExceptionLogLevel.Warning;
         }

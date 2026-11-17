@@ -184,12 +184,33 @@ public partial class MainWindowViewModel
             if (observation.Warning is { Length: > 0 } warning) { _resourceState += " " + warning; }
             if (query.Source == ResourceHistorySource.RecentSeconds)
             {
-                var alertKey = query.TaskIdentity is { Length: > 0 } taskId
-                    ? "task:" + taskId
-                    : query.RemoteHostId is { Length: > 0 } remoteId
-                        ? "host:remote:" + remoteId
-                        : "host:local";
-                SeedHighCpuFromRecentPlot(alertKey, plots.Cpu, query.To);
+                if (query.TaskIdentity is { Length: > 0 } taskId)
+                {
+                    var thresholds = _alertSettings.ResolveTask(query.TaskName ?? string.Empty);
+                    if (thresholds.Enabled)
+                    {
+                        SeedHighCpuFromRecentPlot("task:" + taskId, plots.Cpu, query.To,
+                            thresholds.CpuPercent, thresholds.CpuResetPercent, thresholds.CpuSustainDuration);
+                    }
+                }
+                else if (query.RemoteHostId is { Length: > 0 } remoteId)
+                {
+                    var thresholds = _alertSettings.ResolveHost(remoteId);
+                    if (thresholds.Enabled)
+                    {
+                        SeedHighCpuFromRecentPlot("host:remote:" + remoteId, plots.Cpu, query.To,
+                            thresholds.CpuPercent, thresholds.CpuResetPercent, thresholds.CpuSustainDuration);
+                    }
+                }
+                else
+                {
+                    var thresholds = _alertSettings.ResolveHost("local");
+                    if (thresholds.Enabled)
+                    {
+                        SeedHighCpuFromRecentPlot("host:local", plots.Cpu, query.To,
+                            thresholds.CpuPercent, thresholds.CpuResetPercent, thresholds.CpuSustainDuration);
+                    }
+                }
                 UpdateResourceAlerts();
             }
             NotifyResourceTrends();

@@ -11,6 +11,7 @@ using SystemAutorun.App.Dialogs;
 using SystemAutorun.App.Services;
 using SystemAutorun.App.ViewModels;
 using SystemAutorun.Core.Ipc;
+using SystemAutorun.Windows.Scheduling;
 using SystemAutorun.Windows.Startup;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Button = System.Windows.Controls.Button;
@@ -92,6 +93,7 @@ public partial class MainWindow : Window, IDialogScrimHost
         viewModel.AddProgramRequested += (_, _) => OpenAddProgram();
         viewModel.EditTaskRequested += (_, task) => OpenEditProgram(task);
         viewModel.RemoteHostDialogRequested += (_, editingId) => OpenRemoteHosts(editingId);
+        viewModel.AlertSettingsRequested += (_, focusKey) => OpenAlertSettings(focusKey);
         viewModel.AlertRequested += (_, message) => App.CurrentApp.ShowTrayInfo("家庭服务器告警", message);
 
         _serviceDragController = new ListReorderDragController<TaskRowViewModel>(
@@ -506,8 +508,21 @@ public partial class MainWindow : Window, IDialogScrimHost
         _ = new AboutWindow(autoCheckOnLoad) { Owner = DialogOwner }.ShowDialog();
         RestoreDashboardFocus(previous, SettingsButton);
     }
-    private void InstallBoot_Click(object sender, RoutedEventArgs e) => App.CurrentApp.RunElevated("install-boot");
-    private void UninstallBoot_Click(object sender, RoutedEventArgs e) => App.CurrentApp.RunElevated("uninstall-boot");
+    private async void InstallBoot_Click(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        _ = await App.CurrentApp.RunElevatedCommandAsync("install-boot");
+        UpdateBootTaskMenuItems();
+    }
+
+    private async void UninstallBoot_Click(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        _ = await App.CurrentApp.RunElevatedCommandAsync("uninstall-boot");
+        UpdateBootTaskMenuItems();
+    }
 
     private async void Recovery_Click(object sender, RoutedEventArgs e) => await OpenRecoveryAsync(sender);
 
@@ -545,11 +560,42 @@ public partial class MainWindow : Window, IDialogScrimHost
         }
     }
 
+    internal Func<bool> BootTaskInstalledProbe { get; set; } = IsBootTaskInstalledCore;
+
+    private static bool IsBootTaskInstalledCore()
+    {
+        try
+        {
+            return new BootTaskScheduler().GetStatus().Installed;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    internal void UpdateBootTaskMenuItems()
+    {
+        bool installed;
+        try
+        {
+            installed = BootTaskInstalledProbe();
+        }
+        catch (Exception)
+        {
+            installed = false;
+        }
+
+        InstallBootMenuItem.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
+        UninstallBootMenuItem.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void WindowsStartupMenu_SubmenuOpened(object sender, RoutedEventArgs e)
     {
         _ = sender;
         _ = e;
         SelfStartupMenuItem.IsChecked = IsSelfStartupRegistered();
+        UpdateBootTaskMenuItems();
     }
 
     private bool IsSelfStartupRegistered()
@@ -695,6 +741,34 @@ public partial class MainWindow : Window, IDialogScrimHost
         catch (Exception exception)
         {
             if (!App.CurrentApp.IsExiting) { MessageDialog.ShowError(DialogOwner, "远程服务器读取失败", AgentErrorMessages.Format(exception)); }
+        }
+        finally { RestoreDashboardFocus(previous, SettingsButton); }
+    }
+
+    private async void OpenAlertSettings(string? focusTargetKey = null) => await OpenAlertSettingsAsync(focusTargetKey);
+
+    internal async Task OpenAlertSettingsAsync(string? focusTargetKey = null)
+    {
+        if (App.CurrentApp.IsExiting) { return; }
+        var previous = Keyboard.FocusedElement;
+        try
+        {
+            var original = await _viewModel.PrepareAlertSettingsEditAsync();
+            if (App.CurrentApp.IsExiting) { return; }
+            var dialog = new AlertSettingsWindow(
+                original.Preferences.AlertSettings,
+                original.Preferences.RemoteHosts,
+                original.Configuration.Tasks,
+                settings => _viewModel.ApplyAlertSettingsAsync(settings, original),
+                focusTargetKey)
+            {
+                Owner = DialogOwner,
+            };
+            _ = dialog.ShowDialog();
+        }
+        catch (Exception exception)
+        {
+            if (!App.CurrentApp.IsExiting) { MessageDialog.ShowError(DialogOwner, "报警阈值读取失败", AgentErrorMessages.Format(exception)); }
         }
         finally { RestoreDashboardFocus(previous, SettingsButton); }
     }

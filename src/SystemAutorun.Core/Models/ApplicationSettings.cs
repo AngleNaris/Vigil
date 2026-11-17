@@ -18,6 +18,9 @@ public record ApplicationSettings
     [JsonPropertyName("log_sources")]
     public IReadOnlyList<LogSourceDefinition> LogSources { get; init; } = [];
 
+    [JsonPropertyName("alert_settings")]
+    public ResourceAlertSettings AlertSettings { get; init; } = new();
+
     [JsonExtensionData]
     public IDictionary<string, JsonElement>? AdditionalSettings { get; init; }
 }

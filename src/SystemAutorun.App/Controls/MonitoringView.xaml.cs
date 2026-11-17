@@ -86,9 +86,26 @@ public partial class MonitoringView : System.Windows.Controls.UserControl
             var row = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
             target = row?.DataContext as HostTabViewModel;
         }
-        if (target is null || target.IsLocal)
+        if (target is null)
         {
             e.Handled = true;
+            return;
+        }
+
+        if (HostList.ContextMenu is { } menu)
+        {
+            var remoteVisibility = target.IsLocal ? Visibility.Collapsed : Visibility.Visible;
+            foreach (var item in menu.Items)
+            {
+                if (item is System.Windows.Controls.MenuItem menuItem && menuItem.Name is "EditHostMenuItem" or "RemoveHostMenuItem")
+                {
+                    menuItem.Visibility = remoteVisibility;
+                }
+                else if (item is Separator separator && separator.Name is "HostAlertMenuSeparator" or "HostMenuSeparator")
+                {
+                    separator.Visibility = remoteVisibility;
+                }
+            }
         }
     }
 

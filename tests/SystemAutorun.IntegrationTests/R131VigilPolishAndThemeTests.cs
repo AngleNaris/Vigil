@@ -233,7 +233,7 @@ public sealed class R131VigilPolishAndThemeTests
                 Assert.All(plusButtons, btn => Assert.Equal("添加服务器", btn.ToolTip));
 
                 var hostMenu = main.MonitoringTabs.HostList.ContextMenu!;
-                Assert.Equal(["编辑服务器", "删除服务器…"], hostMenu.Items.OfType<MenuItem>().Select(item => (string)item.Header));
+                Assert.Equal(["报警阈值设置…", "编辑服务器", "删除服务器…"], hostMenu.Items.OfType<MenuItem>().Select(item => (string)item.Header));
 
                 Assert.Equal(3, model.Hosts.Count);
                 Assert.True(model.Hosts[0].IsLocal);
@@ -279,17 +279,23 @@ public sealed class R131VigilPolishAndThemeTests
                 var saved = await cfg.ReadAsync();
                 Assert.Equal(["host-b", "host-a"], saved.Preferences.RemoteHosts.Select(item => item.Id));
 
-                // Context menu opening guard: suppressed on local host, allowed on remote host.
+                // Context menu opens on local host with alert settings only (edit/remove hidden), and full menu on remote hosts.
                 var rowLocal = Assert.IsType<ListBoxItem>(main.MonitoringTabs.HostList.ItemContainerGenerator.ContainerFromIndex(0));
                 var openMethod = typeof(MonitoringView).GetMethod("HostList_ContextMenuOpening", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 var localArgs = CreateContextMenuArgs(rowLocal);
                 openMethod.Invoke(main.MonitoringTabs, [main.MonitoringTabs.HostList, localArgs]);
-                Assert.True(localArgs.Handled);
+                Assert.False(localArgs.Handled);
+                Assert.Equal(Visibility.Visible, main.MonitoringTabs.HostAlertSettingsMenuItem.Visibility);
+                Assert.Equal(Visibility.Collapsed, main.MonitoringTabs.EditHostMenuItem.Visibility);
+                Assert.Equal(Visibility.Collapsed, main.MonitoringTabs.RemoveHostMenuItem.Visibility);
 
                 var rowRemote = Assert.IsType<ListBoxItem>(main.MonitoringTabs.HostList.ItemContainerGenerator.ContainerFromIndex(1));
                 var remoteArgs = CreateContextMenuArgs(rowRemote);
                 openMethod.Invoke(main.MonitoringTabs, [main.MonitoringTabs.HostList, remoteArgs]);
                 Assert.False(remoteArgs.Handled);
+                Assert.Equal(Visibility.Visible, main.MonitoringTabs.HostAlertSettingsMenuItem.Visibility);
+                Assert.Equal(Visibility.Visible, main.MonitoringTabs.EditHostMenuItem.Visibility);
+                Assert.Equal(Visibility.Visible, main.MonitoringTabs.RemoveHostMenuItem.Visibility);
 
                 // Verify single-server Add and Edit dialogs open cleanly.
                 var addDialog = new RemoteHostsWindow([hostA, hostB], _ => Task.CompletedTask, editing: null)

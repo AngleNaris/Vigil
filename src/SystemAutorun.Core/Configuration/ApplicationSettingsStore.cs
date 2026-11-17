@@ -53,6 +53,7 @@ public sealed class ApplicationSettingsStore
             {
                 AdditionalSettings = source.AdditionalSettings?.ToDictionary(pair => pair.Key, pair => pair.Value.Clone()),
             }).ToArray(),
+            AlertSettings = (settings.AlertSettings ?? new ResourceAlertSettings()).CloneNormalized(),
             AdditionalSettings = settings.AdditionalSettings?.ToDictionary(pair => pair.Key, pair => pair.Value.Clone()),
         };
         lock (_saveSync)
@@ -115,11 +116,26 @@ public sealed class ApplicationSettingsStore
             throw new ConfigurationException("remote_hosts must be an array.");
         }
 
+        if (settings.AlertSettings is null)
+        {
+            throw new ConfigurationException("alert_settings must be an object, not null.");
+        }
+
+        try
+        {
+            ResourceAlertSettingsValidator.Validate(settings.AlertSettings);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new ConfigurationException(exception.Message, exception);
+        }
+
         if (settings.AdditionalSettings?.Keys.Any(key =>
             string.Equals(key, "auto_start_missing_on_launch", StringComparison.OrdinalIgnoreCase)
             || string.Equals(key, "auto_recover_failed_tasks", StringComparison.OrdinalIgnoreCase)
             || string.Equals(key, "remote_hosts", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(key, "log_sources", StringComparison.OrdinalIgnoreCase)) == true)
+            || string.Equals(key, "log_sources", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(key, "alert_settings", StringComparison.OrdinalIgnoreCase)) == true)
         {
             throw new ConfigurationException("Additional settings must not shadow built-in settings.");
         }

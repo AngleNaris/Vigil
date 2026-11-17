@@ -234,9 +234,11 @@
                      LostMouseCapture="HostList_LostMouseCapture">
               <ListBox.ContextMenu>
                 <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                  <MenuItem Header="编辑服务器" Command="{Binding EditRemoteHostCommand}" CommandParameter="{Binding SelectedHostTab}" />
-                  <Separator />
-                  <MenuItem Header="删除服务器…" Command="{Binding RemoveRemoteHostCommand}" CommandParameter="{Binding SelectedHostTab}" />
+                  <MenuItem x:Name="HostAlertSettingsMenuItem" Header="报警阈值设置…" Command="{Binding OpenHostAlertSettingsCommand}" CommandParameter="{Binding SelectedHostTab}" />
+                  <Separator x:Name="HostAlertMenuSeparator" />
+                  <MenuItem x:Name="EditHostMenuItem" Header="编辑服务器" Command="{Binding EditRemoteHostCommand}" CommandParameter="{Binding SelectedHostTab}" />
+                  <Separator x:Name="HostMenuSeparator" />
+                  <MenuItem x:Name="RemoveHostMenuItem" Header="删除服务器…" Command="{Binding RemoveRemoteHostCommand}" CommandParameter="{Binding SelectedHostTab}" />
                 </ContextMenu>
               </ListBox.ContextMenu>
               <ListBox.ItemTemplate>
