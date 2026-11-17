@@ -32,7 +32,7 @@ internal sealed class TrayService : IDisposable
         Action openLogs,
         Action exit)
     {
-        _dispatcher = WpfApplication.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        _dispatcher = Dispatcher.CurrentDispatcher;
         _contextMenu = new WpfContextMenu
         {
             Placement = PlacementMode.MousePoint,
@@ -63,10 +63,20 @@ internal sealed class TrayService : IDisposable
             Icon = DrawingIcon.ExtractAssociatedIcon(Environment.ProcessPath!),
             Visible = true,
         };
-        _notifyIcon.DoubleClick += (_, _) => show();
         _notifyIcon.MouseUp += (_, args) =>
         {
-            if (args.Button != FormsMouseButtons.Right || _disposed) { return; }
+            if (_disposed) { return; }
+            if (args.Button == FormsMouseButtons.Left)
+            {
+                _ = _dispatcher.BeginInvoke(() =>
+                {
+                    if (_disposed) { return; }
+                    if (_contextMenu.IsOpen) { _contextMenu.IsOpen = false; }
+                    show();
+                });
+                return;
+            }
+            if (args.Button != FormsMouseButtons.Right) { return; }
             _ = _dispatcher.BeginInvoke(() =>
             {
                 if (_disposed) { return; }

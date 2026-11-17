@@ -24,6 +24,8 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly NativeCacheStore _cache;
     private readonly AgentConfigurationClient _configuration;
     private readonly ProjectPaths _paths;
+
+    internal string RootDirectory => _paths.RootDirectory;
     private readonly Func<ProcessStartInfo, Process?> _openLogDirectory;
     private Task _settingsSaveTask = Task.CompletedTask;
     private int _settingsGeneration;

@@ -699,6 +699,25 @@ public sealed class R131VigilPolishAndThemeTests
             SaveEvidenceIfRequested(main, "empty-state-button.png");
         });
 
+    [Fact]
+    public Task LogonStartupMenuIsCheckableAndTrayRestoresOnSingleLeftClick() =>
+        ResourceDashboardWindowTests.WithResourceWindow(false, async (_, main, _) =>
+        {
+            Assert.Equal("登录自动启动", main.SelfStartupMenuItem.Header);
+            Assert.True(main.SelfStartupMenuItem.IsCheckable);
+            var submenuMethod = typeof(SystemAutorun.App.MainWindow).GetMethod("WindowsStartupMenu_SubmenuOpened", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            submenuMethod.Invoke(main, [main.WindowsStartupMenu, new RoutedEventArgs()]);
+
+            var shown = 0;
+            using var tray = new TrayService(() => shown++, () => { }, () => { }, () => { }, () => { });
+            var notifyField = typeof(TrayService).GetField("_notifyIcon", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var notifyIcon = Assert.IsType<System.Windows.Forms.NotifyIcon>(notifyField.GetValue(tray));
+            var onMouseUp = typeof(System.Windows.Forms.NotifyIcon).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            onMouseUp.Invoke(notifyIcon, [new System.Windows.Forms.MouseEventArgs(System.Windows.Forms.MouseButtons.Left, 1, 0, 0, 0)]);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.Equal(1, shown);
+        });
+
     private static ContextMenuEventArgs CreateContextMenuArgs(DependencyObject originalSource)
     {
         var args = (ContextMenuEventArgs)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ContextMenuEventArgs));

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -10,6 +11,7 @@ using SystemAutorun.App.Dialogs;
 using SystemAutorun.App.Services;
 using SystemAutorun.App.ViewModels;
 using SystemAutorun.Core.Ipc;
+using SystemAutorun.Windows.Startup;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -543,9 +545,57 @@ public partial class MainWindow : Window, IDialogScrimHost
         }
     }
 
+    private void WindowsStartupMenu_SubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        SelfStartupMenuItem.IsChecked = IsSelfStartupRegistered();
+    }
+
+    private bool IsSelfStartupRegistered()
+    {
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable)) { return false; }
+        try
+        {
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_viewModel.RootDirectory));
+            var registered = UserStartupRegistration.IsEnabled(executable, root);
+            _viewModel.IsSelfStartupEnabled = registered;
+            return registered;
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException
+            or System.Security.SecurityException or InvalidOperationException)
+        {
+            return _viewModel.IsSelfStartupEnabled;
+        }
+    }
+
     private void SelfStartup_Click(object sender, RoutedEventArgs e)
     {
-        App.CurrentApp.OpenSelfStartup(this, SettingsButton);
+        _ = sender;
+        _ = e;
+        var enabled = SelfStartupMenuItem.IsChecked;
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            SelfStartupMenuItem.IsChecked = !enabled;
+            MessageDialog.ShowError(DialogOwner, "登录自动启动设置失败", "无法定位当前 Vigil 可执行文件路径。");
+            return;
+        }
+
+        try
+        {
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_viewModel.RootDirectory));
+            UserStartupRegistration.SetEnabled(enabled, executable, root);
+            _viewModel.IsSelfStartupEnabled = enabled;
+            _viewModel.StatusMessage = enabled ? "已开启登录自动启动（默认最小化到托盘）。" : "已关闭登录自动启动。";
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException
+            or System.Security.SecurityException or InvalidOperationException)
+        {
+            SelfStartupMenuItem.IsChecked = !enabled;
+            MessageDialog.ShowError(DialogOwner, "登录自动启动设置失败", exception.Message);
+        }
     }
 
     internal async Task OpenLogViewerAsync(string? taskName)

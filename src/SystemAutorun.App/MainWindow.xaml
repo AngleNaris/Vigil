@@ -135,9 +135,10 @@
                                         <MenuItem Header="自定义颜色…" Click="CustomAccent_Click" />
                                     </MenuItem>
                                     <Separator />
-                                    <MenuItem Header="Windows 启动">
+                                    <MenuItem x:Name="WindowsStartupMenu" Header="Windows 启动" SubmenuOpened="WindowsStartupMenu_SubmenuOpened">
                                         <MenuItem Header="启动项管理" Command="{Binding OpenStartupManagerCommand}" />
-                                        <MenuItem Header="工具登录启动…" Click="SelfStartup_Click" />
+                                        <MenuItem x:Name="SelfStartupMenuItem" Header="登录自动启动" IsCheckable="True" Click="SelfStartup_Click"
+                                                  ToolTip="登录 Windows 时自动启动并最小化到系统托盘" />
                                         <Separator />
                                         <MenuItem Header="安装系统启动任务…" Click="InstallBoot_Click" />
                                         <MenuItem Header="卸载系统启动任务…" Click="UninstallBoot_Click" />
