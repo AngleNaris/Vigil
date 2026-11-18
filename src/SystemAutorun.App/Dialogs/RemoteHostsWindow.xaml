@@ -7,7 +7,7 @@
         Title="添加远程服务器"
         Width="560"
         MinWidth="500"
-        MaxHeight="580"
+        MaxHeight="640"
         SizeToContent="Height"
         FontSize="13"
         WindowStyle="None"
@@ -137,6 +137,11 @@
                             <controls:LineIcon Width="16" Height="16" Kind="Folder" />
                         </Button>
                     </Grid>
+
+                    <StackPanel Margin="0,10,0,0">
+                        <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="代理地址（可选，如 socks5://127.0.0.1:10808）" />
+                        <TextBox x:Name="ProxyUriTextBox" AutomationProperties.Name="SSH 代理地址" />
+                    </StackPanel>
 
                     <Grid Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>

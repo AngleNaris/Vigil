@@ -277,6 +277,27 @@ public sealed class MonitoringHistoryStoreTests
         Assert.Empty(Directory.GetFiles(store.DirectoryPath, "history-v1-*.jsonl"));
     }
 
+    [Theory]
+    [InlineData(-1d, null, null, null)]
+    [InlineData(null, double.NaN, null, null)]
+    [InlineData(null, null, double.PositiveInfinity, null)]
+    [InlineData(null, null, null, -0.5)]
+    public async Task RejectsNegativeOrNonFiniteTaskDiskAndNetworkRates(
+        double? diskRead, double? diskWrite, double? netRecv, double? netSend)
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        var invalidSample = new TaskHistorySample(
+            "task", Identity, ObservationHealth.Healthy, 10, 100, 1000,
+            DiskReadBytesPerSecond: diskRead,
+            DiskWriteBytesPerSecond: diskWrite,
+            NetworkReceiveBytesPerSecond: netRecv,
+            NetworkSendBytesPerSecond: netSend);
+        var frame = new MonitoringHistoryFrame(1, AgentProtocol.ForRoot(fixture.Root).RootId,
+            Guid.NewGuid().ToString("N"), Start, [invalidSample]);
+        await Assert.ThrowsAsync<ArgumentException>(() => store.AppendAsync(frame));
+    }
+
     [Fact]
     public async Task ForeignRootRecordIsNotAcceptedAsLocalHistory()
     {

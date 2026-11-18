@@ -58,7 +58,7 @@ internal sealed class AgentRemoteHostService(
             if (!observed.Id.Equals(definition.Id, StringComparison.OrdinalIgnoreCase)
                 || !observed.Host.Equals(definition.Host, StringComparison.OrdinalIgnoreCase)
                 || observed.Platform != definition.Platform || observed.Name != definition.Name
-                || observed.Online && (observed.CapturedAt < now.AddSeconds(-15) || observed.CapturedAt > now.AddSeconds(5)))
+                || observed.Online && (observed.CapturedAt < now.AddSeconds(-25) || observed.CapturedAt > now.AddSeconds(5)))
             { return Unavailable("remote_source_mismatch", "Remote provider returned a mismatched or stale observation."); }
             return new(original.Revision, observed.Online, observed.Online ? null : "remote_unavailable", now, observed);
         }

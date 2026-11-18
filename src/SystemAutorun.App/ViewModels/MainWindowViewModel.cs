@@ -86,7 +86,7 @@ public partial class MainWindowViewModel : ObservableObject
         {
             if (_dashboardInitialized && AutoRefresh && !_dashboardDisposed)
             {
-                var until = DateTimeOffset.UtcNow.AddSeconds(5);
+                var until = DateTimeOffset.UtcNow.AddSeconds(15);
                 _localResumeGraceUntilUtc = until;
                 _remoteResumeGraceUntilUtc = until;
             }
@@ -1317,10 +1317,13 @@ public partial class MainWindowViewModel : ObservableObject
                 || snapshot.Online && !RemoteObservationFresh(snapshot.CapturedAt))
             { throw new InvalidDataException("远程观测身份或采样时间无效。"); }
             _dashboardNow = DateTimeOffset.UtcNow;
-            _remoteResumeGraceUntilUtc = null;
+            if (!HasMultipleEnabledRemoteHosts) { _remoteResumeGraceUntilUtc = null; }
             tab.ApplyRemoteStatus(snapshot);
             ApplyRemoteHostStatus(snapshot);
-            if (_monitoringSnapshot is null || !_refreshIsAutomatic || DateTimeOffset.UtcNow - _monitoringSnapshot.ReturnedAt >= FullRefreshInterval)
+            if (_monitoringSnapshot is null
+                || !_refreshIsAutomatic
+                || (HasMultipleEnabledRemoteHosts && HasOtherRemoteHostApproachingExpiry(tab))
+                || DateTimeOffset.UtcNow - _monitoringSnapshot.ReturnedAt >= FullRefreshInterval)
             {
                 try
                 {
@@ -1334,6 +1337,7 @@ public partial class MainWindowViewModel : ObservableObject
                 catch (Exception exception) when (exception is not OutOfMemoryException)
                 { System.Diagnostics.Trace.TraceInformation("Background monitor snapshot check skipped on remote tab: {0}", exception.GetType().Name); }
             }
+            _remoteResumeGraceUntilUtc = null;
             UpdateResourceTrends(force: !_refreshIsAutomatic && _resourceCancellation is null);
             if (_resourceCancellation is not null) { await ResourceHistoryTask; }
             return true;

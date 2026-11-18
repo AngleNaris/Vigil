@@ -321,12 +321,17 @@ internal sealed partial class AgentMonitor : IDisposable
                 string.Equals(row.Name, task.Name, StringComparison.OrdinalIgnoreCase) && MonitoringTaskIdentity.For(row) == identity) : null;
             var process = MatchingProcess(task.Name, identity, task.Type.ToKey(), capture.Processes, at);
             if (process is not null && at - process.CapturedAt > TimeSpan.FromSeconds(3)) { process = null; }
+            var hasRates = process is { CpuUsageAvailable: true, ProcessCount: > 0 };
             return new TaskHistorySample(task.Name, identity,
                 health is not { HealthObserved: true } ? ObservationHealth.Unknown : health.Healthy ? ObservationHealth.Healthy : ObservationHealth.Fault,
-                process is { CpuUsageAvailable: true } ? process.CpuUsagePercent : null,
+                hasRates ? process!.CpuUsagePercent : null,
                 process is { ProcessCount: > 0 } ? process.WorkingSetBytes : null,
                 freshHost.Available && freshHost.Data is { TotalMemoryBytes: > 0 } data ? data.TotalMemoryBytes : null,
-                validUntil, ResourceProcessIdentity.For(process, at, generation));
+                validUntil, ResourceProcessIdentity.For(process, at, generation),
+                hasRates ? process!.TotalDiskReadBytesPerSecond : null,
+                hasRates ? process!.TotalDiskWriteBytesPerSecond : null,
+                hasRates ? process!.TotalNetworkReceiveBytesPerSecond : null,
+                hasRates ? process!.TotalNetworkSendBytesPerSecond : null);
         }).ToArray() ?? [];
         var remoteHosts = _remoteMonitor?.CaptureDurableSamples(capture.Configuration, at);
         return new(1, before.RootId, before.InstanceId, at, rows, Host: BuildHostHistory(freshHost), RemoteHosts: remoteHosts);
@@ -341,9 +346,14 @@ internal sealed partial class AgentMonitor : IDisposable
             var process = MatchingProcess(task.Name, identity, task.Type.ToKey(), capture.Processes, at);
             if (process is not null && at - process.CapturedAt > TimeSpan.FromSeconds(3)) { process = null; }
             var processIdentity = ResourceProcessIdentity.For(process, at, generation);
+            var hasRates = processIdentity is not null && process is { CpuUsageAvailable: true, ProcessCount: > 0 };
             return new ResourceTaskSample(task.Name, identity, process?.CapturedAt ?? at, processIdentity,
-                processIdentity is not null && process is { CpuUsageAvailable: true } ? process.CpuUsagePercent : null,
-                processIdentity is not null ? process!.WorkingSetBytes : null);
+                hasRates ? process!.CpuUsagePercent : null,
+                processIdentity is not null ? process!.WorkingSetBytes : null,
+                hasRates ? process!.TotalDiskReadBytesPerSecond : null,
+                hasRates ? process!.TotalDiskWriteBytesPerSecond : null,
+                hasRates ? process!.TotalNetworkReceiveBytesPerSecond : null,
+                hasRates ? process!.TotalNetworkSendBytesPerSecond : null);
         }).ToArray() ?? [];
         var freshHost = host.Available && host.Data is { } data && data.CapturedAt <= at && at - data.CapturedAt <= TimeSpan.FromSeconds(3);
         return new(at, instanceId, rows, freshHost ? BuildHostHistory(host) : null, freshHost ? host.Data!.CapturedAt : null);

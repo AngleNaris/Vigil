@@ -49,9 +49,12 @@ public static class ResourceHistoryResponseValidator
         Validate(new ResourceHistoryResult(1, result.Source, result.TaskName, result.TaskIdentity, result.From, result.To,
             1, 1, result.Points, result.RetainedFrom, result.LatestRecordAt, result.Truncated, result.Warning, result.RemoteHostId), query);
         DateTimeOffset? previousAt = null;
+        var maximumGap = result.RemoteHostId is not null
+            ? TimeSpan.FromSeconds(15)
+            : TimeSpan.FromMilliseconds(result.SourceIntervalMilliseconds * 1.5);
         foreach (var point in result.Points)
         {
-            if (previousAt is { } prior && point.At - prior > TimeSpan.FromMilliseconds(result.SourceIntervalMilliseconds * 1.5)
+            if (previousAt is { } prior && point.At - prior > maximumGap
                 && !point.BreakBefore)
             { throw new InvalidDataException("Recent resource response joins a missing capture interval."); }
             previousAt = point.At;

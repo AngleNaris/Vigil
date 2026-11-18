@@ -44,6 +44,10 @@ public partial class MainWindowViewModel
         + " 内存始终为工作集字节；主读数仍为当前观测。";
     public IReadOnlyList<PlotPoint> DashboardResourceCpu => _resourceTargetIsHost ? [] : _resourcePlots.Cpu;
     public IReadOnlyList<PlotPoint> DashboardResourceMemory => _resourceTargetIsHost ? [] : _resourcePlots.Memory;
+    public IReadOnlyList<PlotPoint> DashboardResourceDiskRead => _resourceTargetIsHost ? [] : _resourcePlots.DiskRead;
+    public IReadOnlyList<PlotPoint> DashboardResourceDiskWrite => _resourceTargetIsHost ? [] : _resourcePlots.DiskWrite;
+    public IReadOnlyList<PlotPoint> DashboardResourceReceive => _resourceTargetIsHost ? [] : _resourcePlots.Receive;
+    public IReadOnlyList<PlotPoint> DashboardResourceSend => _resourceTargetIsHost ? [] : _resourcePlots.Send;
     public bool DashboardResourceMemoryBytes => true;
     public TimeSpan DashboardResourceDuration => DashboardHistoryMode ? TimeSpan.FromHours(DashboardWindowHours) : ResourceHistoryProjection.RecentWindow;
     public DateTimeOffset DashboardResourceEnd => _resourceHistory?.To ?? DashboardNow;
@@ -74,7 +78,8 @@ public partial class MainWindowViewModel
     public string HostDiskWriteText => HostRate(IsLocalHostSelected ? _lastLocalHostSnapshot?.DiskWriteBytesPerSecond : SelectedHostTab?.RemoteSnapshot?.DiskWriteBytesPerSecond);
     public string HostReceiveText => HostRate(IsLocalHostSelected ? _lastLocalHostSnapshot?.NetworkReceiveBytesPerSecond : SelectedHostTab?.RemoteSnapshot?.NetworkReceiveBytesPerSecond);
     public string HostSendText => HostRate(IsLocalHostSelected ? _lastLocalHostSnapshot?.NetworkSendBytesPerSecond : SelectedHostTab?.RemoteSnapshot?.NetworkSendBytesPerSecond);
-    private string HostRate(double? value) => HostStatusAvailable && value is { } rate && double.IsFinite(rate) && rate >= 0
+    private string HostRate(double? value) => HostStatusAvailable ? TaskRate(value) : "--";
+    private static string TaskRate(double? value) => value is { } rate && double.IsFinite(rate) && rate >= 0
         ? FormatResourceRate(rate) : "--";
     private static string FormatResourceRate(double rate)
     {
@@ -252,10 +257,14 @@ public partial class MainWindowViewModel
 
     private void NotifyResourceTrends()
     {
-        foreach (var property in new[] { nameof(DashboardResourceCpu), nameof(DashboardResourceMemory), nameof(DashboardResourceEnd),
+        foreach (var property in new[] { nameof(DashboardResourceCpu), nameof(DashboardResourceMemory),
+            nameof(DashboardResourceDiskRead), nameof(DashboardResourceDiskWrite), nameof(DashboardResourceReceive), nameof(DashboardResourceSend),
+            nameof(DashboardResourceEnd),
             nameof(DashboardResourceDuration), nameof(DashboardResourceMemoryBytes), nameof(DashboardResourceScaleKey), nameof(DashboardResourceDataAt), nameof(DashboardDataPulseContext),
             nameof(DashboardHealthWindowLabel), nameof(DashboardResourceCaption), nameof(DashboardResourceEmptyText),
-            nameof(DashboardResourceHelp), nameof(DashboardResourceCpuText), nameof(HostResourceCpu), nameof(HostResourceMemory),
+            nameof(DashboardResourceHelp), nameof(DashboardResourceCpuText),
+            nameof(DashboardDiskReadText), nameof(DashboardDiskWriteText), nameof(DashboardReceiveText), nameof(DashboardSendText),
+            nameof(HostResourceCpu), nameof(HostResourceMemory),
             nameof(HostResourceDiskRead), nameof(HostResourceDiskWrite), nameof(HostResourceReceive), nameof(HostResourceSend),
             nameof(HostResourceHelp), nameof(HostResourceCpuText), nameof(HostMemoryUsedText), nameof(HostDiskReadText), nameof(HostDiskWriteText), nameof(HostReceiveText), nameof(HostSendText),
             nameof(IsResourceLoading) })

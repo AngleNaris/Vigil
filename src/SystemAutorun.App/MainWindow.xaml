@@ -344,42 +344,103 @@
                                                         AutomationProperties.Name="服务健康时间带" AutomationProperties.HelpText="{Binding DashboardHistoryHelp}" />
                             </Border>
                         </Grid>
-                        <Grid Grid.Row="2">
-                            <!-- R128: CPU and memory stack with compact top MetricHeadingPanel header + full-width trend plot aligned to 6 DIP detail pane edges. -->
-                            <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                            <Border x:Name="ServiceCpuCell" services:LineMotion.Region="2" Style="{StaticResource DashboardMetricCell}" Padding="6,10,6,8" BorderThickness="0,0,0,1" AutomationProperties.Name="服务CPU">
-                                <Grid>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                                    <controls:MetricHeadingPanel x:Name="ServiceCpuHeading" MinHeight="30" Margin="0,0,0,6">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Border Width="28" Height="28" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1" VerticalAlignment="Center">
-                                                <controls:LineIcon Kind="Cpu" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
-                                            </Border>
-                                            <TextBlock x:Name="ServiceCpuLabel" Margin="10,0,0,0" Style="{StaticResource MetricCaptionStyle}" Text="CPU" />
-                                            <TextBlock x:Name="ServiceCpuMetaText" Margin="10,1,0,0" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" FontSize="{StaticResource Primitive.Font.12}" Foreground="{DynamicResource Semantic.Brush.TextHint}" Text="{Binding DashboardCpuMetaText}" services:DataChangePulse.Value="{Binding DashboardCpuMetaText}" />
-                                        </StackPanel>
-                                        <TextBlock x:Name="ServiceCpuReadout" Style="{StaticResource DashboardReadout}" FontSize="22" services:SurfaceMotion.RollingText="{Binding DashboardResourceCpuText}" services:DataChangePulse.Value="{Binding DashboardResourceCpuText}" AutomationProperties.Name="当前服务CPU" />
-                                    </controls:MetricHeadingPanel>
-                                    <controls:DashboardPlot Grid.Row="1" x:Name="ServiceCpuPlot" PlotLeftInset="0.5" PlotRightInset="0.5" Points="{Binding DashboardResourceCpu}" WindowDuration="{Binding DashboardResourceDuration}" EndAt="{Binding DashboardResourceEnd}" IsLoading="{Binding IsResourceLoading}" EmptyText="{Binding DashboardResourceEmptyText}" ScaleKey="{Binding DashboardResourceScaleKey}" DataAt="{Binding DashboardResourceDataAt}" AutomationProperties.Name="服务CPU趋势" AutomationProperties.HelpText="{Binding DashboardResourceHelp}" />
-                                </Grid>
-                            </Border>
-                            <Border x:Name="ServiceMemoryCell" Grid.Row="1" services:LineMotion.Region="3" Style="{StaticResource DashboardMetricCell}" Padding="6,10,6,8" BorderThickness="0" AutomationProperties.Name="服务内存用量">
-                                <Grid>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                                    <controls:MetricHeadingPanel x:Name="ServiceMemoryHeading" MinHeight="30" Margin="0,0,0,6">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Border Width="28" Height="28" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1" VerticalAlignment="Center">
-                                                <controls:LineIcon Kind="Memory" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
-                                            </Border>
-                                            <TextBlock x:Name="ServiceMemoryLabel" Margin="10,0,0,0" Style="{StaticResource MetricCaptionStyle}" Text="内存" />
-                                            <TextBlock x:Name="ServiceMemoryMetaText" Margin="10,1,0,0" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" FontSize="{StaticResource Primitive.Font.12}" Foreground="{DynamicResource Semantic.Brush.TextHint}" Text="{Binding DashboardMemoryMetaLabel}" services:DataChangePulse.Value="{Binding DashboardMemoryMetaLabel}" AutomationProperties.Name="服务工作集占物理内存比例" />
-                                        </StackPanel>
-                                        <TextBlock x:Name="ServiceMemoryReadout" Style="{StaticResource DashboardReadout}" FontSize="22" services:SurfaceMotion.RollingText="{Binding DashboardWorkingSetText}" services:DataChangePulse.Value="{Binding DashboardWorkingSetText}" AutomationProperties.Name="当前服务工作集" />
-                                    </controls:MetricHeadingPanel>
-                                    <controls:DashboardPlot Grid.Row="1" x:Name="ServiceMemoryPlot" PlotLeftInset="0.5" PlotRightInset="0.5" Points="{Binding DashboardResourceMemory}" WindowDuration="{Binding DashboardResourceDuration}" EndAt="{Binding DashboardResourceEnd}" Bytes="{Binding DashboardResourceMemoryBytes}" IsLoading="{Binding IsResourceLoading}" EmptyText="{Binding DashboardResourceEmptyText}" ScaleKey="{Binding DashboardResourceScaleKey}" DataAt="{Binding DashboardResourceDataAt}" AutomationProperties.Name="服务内存趋势" AutomationProperties.HelpText="{Binding DashboardResourceHelp}" />
-                                </Grid>
-                            </Border>
-                        </Grid>
+                        <ScrollViewer x:Name="ServiceMetricsScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False" Padding="0">
+                            <ScrollViewer.Template>
+                                <ControlTemplate TargetType="ScrollViewer">
+                                    <Grid>
+                                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" CanContentScroll="{TemplateBinding CanContentScroll}" />
+                                        <ScrollBar x:Name="PART_VerticalScrollBar" HorizontalAlignment="Right" Orientation="Vertical" Minimum="0" Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}" Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}" Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                                    </Grid>
+                                </ControlTemplate>
+                            </ScrollViewer.Template>
+                            <Grid>
+                                <!-- R128 + Workloads 4-category 2x2 view: CPU & Memory on row 0, Disk IO & Network on row 1, aligned to 6 DIP detail edges. -->
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Border x:Name="ServiceCpuCell" Grid.Row="0" Grid.Column="0" services:LineMotion.Region="2" Style="{StaticResource DashboardMetricCell}" Padding="6,10,10,8" BorderThickness="0,0,1,1" AutomationProperties.Name="服务CPU">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <controls:MetricHeadingPanel x:Name="ServiceCpuHeading" MinHeight="30" Margin="0,0,0,6" VerticalAlignment="Top">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Width="28" Height="28" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1" VerticalAlignment="Center">
+                                                    <controls:LineIcon Kind="Cpu" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                                                </Border>
+                                                <TextBlock x:Name="ServiceCpuLabel" Margin="10,0,0,0" Style="{StaticResource MetricCaptionStyle}" Text="CPU" />
+                                                <TextBlock x:Name="ServiceCpuMetaText" Margin="10,1,0,0" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" FontSize="{StaticResource Primitive.Font.12}" Foreground="{DynamicResource Semantic.Brush.TextHint}" Text="{Binding DashboardCpuMetaText}" services:DataChangePulse.Value="{Binding DashboardCpuMetaText}" />
+                                            </StackPanel>
+                                            <TextBlock x:Name="ServiceCpuReadout" Style="{StaticResource DashboardReadout}" FontSize="22" services:SurfaceMotion.RollingText="{Binding DashboardResourceCpuText}" services:DataChangePulse.Value="{Binding DashboardResourceCpuText}" AutomationProperties.Name="当前服务CPU" />
+                                        </controls:MetricHeadingPanel>
+                                        <controls:DashboardPlot Grid.Row="1" x:Name="ServiceCpuPlot" Height="118" PlotLeftInset="0.5" PlotRightInset="0.5" Points="{Binding DashboardResourceCpu}" WindowDuration="{Binding DashboardResourceDuration}" EndAt="{Binding DashboardResourceEnd}" IsLoading="{Binding IsResourceLoading}" EmptyText="{Binding DashboardResourceEmptyText}" ScaleKey="{Binding DashboardResourceScaleKey}" DataAt="{Binding DashboardResourceDataAt}" AutomationProperties.Name="服务CPU趋势" AutomationProperties.HelpText="{Binding DashboardResourceHelp}" />
+                                    </Grid>
+                                </Border>
+                                <Border x:Name="ServiceMemoryCell" Grid.Row="0" Grid.Column="1" services:LineMotion.Region="3" Style="{StaticResource DashboardMetricCell}" Padding="10,10,6,8" BorderThickness="0,0,0,1" AutomationProperties.Name="服务内存用量">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <controls:MetricHeadingPanel x:Name="ServiceMemoryHeading" MinHeight="30" Margin="0,0,0,6" VerticalAlignment="Top">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Width="28" Height="28" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1" VerticalAlignment="Center">
+                                                    <controls:LineIcon Kind="Memory" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                                                </Border>
+                                                <TextBlock x:Name="ServiceMemoryLabel" Margin="10,0,0,0" Style="{StaticResource MetricCaptionStyle}" Text="内存" />
+                                                <TextBlock x:Name="ServiceMemoryMetaText" Margin="10,1,0,0" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" FontSize="{StaticResource Primitive.Font.12}" Foreground="{DynamicResource Semantic.Brush.TextHint}" Text="{Binding DashboardMemoryMetaLabel}" services:DataChangePulse.Value="{Binding DashboardMemoryMetaLabel}" AutomationProperties.Name="服务工作集占物理内存比例" />
+                                            </StackPanel>
+                                            <TextBlock x:Name="ServiceMemoryReadout" Style="{StaticResource DashboardReadout}" FontSize="22" services:SurfaceMotion.RollingText="{Binding DashboardWorkingSetText}" services:DataChangePulse.Value="{Binding DashboardWorkingSetText}" AutomationProperties.Name="当前服务工作集" />
+                                        </controls:MetricHeadingPanel>
+                                        <controls:DashboardPlot Grid.Row="1" x:Name="ServiceMemoryPlot" Height="118" PlotLeftInset="0.5" PlotRightInset="0.5" Points="{Binding DashboardResourceMemory}" WindowDuration="{Binding DashboardResourceDuration}" EndAt="{Binding DashboardResourceEnd}" Bytes="{Binding DashboardResourceMemoryBytes}" IsLoading="{Binding IsResourceLoading}" EmptyText="{Binding DashboardResourceEmptyText}" ScaleKey="{Binding DashboardResourceScaleKey}" DataAt="{Binding DashboardResourceDataAt}" AutomationProperties.Name="服务内存趋势" AutomationProperties.HelpText="{Binding DashboardResourceHelp}" />
+                                    </Grid>
+                                </Border>
+                                <Border x:Name="ServiceDiskCell" Grid.Row="1" Grid.Column="0" services:LineMotion.Region="4" Style="{StaticResource DashboardMetricCell}" Padding="6,10,10,8" BorderThickness="0,0,1,0" AutomationProperties.Name="服务磁盘IO">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <controls:MetricHeadingPanel x:Name="ServiceDiskHeading" MinHeight="30" Margin="0,0,0,6" VerticalAlignment="Top">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Width="28" Height="28" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1" VerticalAlignment="Center">
+                                                    <controls:LineIcon Kind="Disk" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                                                </Border>
+                                                <TextBlock x:Name="ServiceDiskLabel" Margin="10,0,0,0" Style="{StaticResource MetricCaptionStyle}" Text="磁盘IO" />
+                                                <controls:PlotLegendHelp Margin="3,0,0,0" VerticalAlignment="Center" Legend="Disk" AccessibleName="服务磁盘读写图例" />
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ToolTip="磁盘读取" AutomationProperties.Name="服务磁盘读取速率">
+                                                    <controls:LineIcon Kind="Inbound" Width="13" Height="13" Margin="0,0,3,0" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.Accent}" />
+                                                    <TextBlock x:Name="ServiceDiskReadout" Style="{StaticResource DashboardReadout}" FontSize="15" Typography.NumeralAlignment="Tabular" services:SurfaceMotion.RollingText="{Binding DashboardDiskReadText}" services:DataChangePulse.Value="{Binding DashboardDiskReadText}" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0" ToolTip="磁盘写入" AutomationProperties.Name="服务磁盘写入速率">
+                                                    <controls:LineIcon Kind="Outbound" Width="13" Height="13" Margin="0,0,3,0" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.ChartSecondary}" />
+                                                    <TextBlock x:Name="ServiceDiskWriteReadout" VerticalAlignment="Center" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="13" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource Semantic.Brush.TextHint}" services:SurfaceMotion.RollingText="{Binding DashboardDiskWriteText}" services:DataChangePulse.Value="{Binding DashboardDiskWriteText}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </controls:MetricHeadingPanel>
+                                        <controls:DashboardPlot Grid.Row="1" x:Name="ServiceDiskPlot" Height="118" PlotLeftInset="0.5" PlotRightInset="0.5" Rate="True" PrimaryLabel="读" SecondaryLabel="写" Points="{Binding DashboardResourceDiskRead}" SecondaryPoints="{Binding DashboardResourceDiskWrite}" WindowDuration="{Binding DashboardResourceDuration}" EndAt="{Binding DashboardResourceEnd}" IsLoading="{Binding IsResourceLoading}" EmptyText="{Binding DashboardResourceEmptyText}" ScaleKey="{Binding DashboardResourceScaleKey}" DataAt="{Binding DashboardResourceDataAt}" AutomationProperties.Name="服务磁盘读写趋势" AutomationProperties.HelpText="{Binding DashboardResourceHelp}" />
+                                    </Grid>
+                                </Border>
+                                <Border x:Name="ServiceNetworkCell" Grid.Row="1" Grid.Column="1" services:LineMotion.Region="5" Style="{StaticResource DashboardMetricCell}" Padding="10,10,6,8" BorderThickness="0" AutomationProperties.Name="服务网络收发速率">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <controls:MetricHeadingPanel x:Name="ServiceNetworkHeading" MinHeight="30" Margin="0,0,0,6" VerticalAlignment="Top">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Width="28" Height="28" Style="{StaticResource InteractiveFrameBorderStyle}" Background="Transparent" BorderThickness="1" VerticalAlignment="Center">
+                                                    <controls:LineIcon Kind="Network" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.TextSecondary}" />
+                                                </Border>
+                                                <TextBlock x:Name="ServiceNetworkLabel" Margin="10,0,0,0" Style="{StaticResource MetricCaptionStyle}" Text="网络" />
+                                                <controls:PlotLegendHelp Margin="3,0,0,0" VerticalAlignment="Center" Legend="Network" AccessibleName="服务网络收发图例" />
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" ToolTip="网络接收" AutomationProperties.Name="服务网络接收速率">
+                                                    <controls:LineIcon Kind="Inbound" Width="13" Height="13" Margin="0,0,3,0" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.Accent}" />
+                                                    <TextBlock x:Name="ServiceNetworkReadout" Style="{StaticResource DashboardReadout}" FontSize="15" Typography.NumeralAlignment="Tabular" services:SurfaceMotion.RollingText="{Binding DashboardReceiveText}" services:DataChangePulse.Value="{Binding DashboardReceiveText}" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0" ToolTip="网络发送" AutomationProperties.Name="服务网络发送速率">
+                                                    <controls:LineIcon Kind="Outbound" Width="13" Height="13" Margin="0,0,3,0" VerticalAlignment="Center" Foreground="{DynamicResource Semantic.Brush.ChartSecondary}" />
+                                                    <TextBlock x:Name="ServiceNetworkSendReadout" VerticalAlignment="Center" FontFamily="{StaticResource Semantic.Font.Monospace}" FontSize="13" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource Semantic.Brush.TextHint}" services:SurfaceMotion.RollingText="{Binding DashboardSendText}" services:DataChangePulse.Value="{Binding DashboardSendText}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </controls:MetricHeadingPanel>
+                                        <controls:DashboardPlot Grid.Row="1" x:Name="ServiceNetworkPlot" Height="118" PlotLeftInset="0.5" PlotRightInset="0.5" Rate="True" PrimaryLabel="收" SecondaryLabel="发" Points="{Binding DashboardResourceReceive}" SecondaryPoints="{Binding DashboardResourceSend}" WindowDuration="{Binding DashboardResourceDuration}" EndAt="{Binding DashboardResourceEnd}" IsLoading="{Binding IsResourceLoading}" EmptyText="{Binding DashboardResourceEmptyText}" ScaleKey="{Binding DashboardResourceScaleKey}" DataAt="{Binding DashboardResourceDataAt}" AutomationProperties.Name="服务网络收发趋势" AutomationProperties.HelpText="{Binding DashboardResourceHelp}" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </ScrollViewer>
                     </Grid>
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                         <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasDashboardSelection}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>

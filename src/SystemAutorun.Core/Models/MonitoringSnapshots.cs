@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace SystemAutorun.Core.Models;
@@ -11,7 +12,11 @@ public sealed record ManagedProcessInstanceSnapshot(
     long WorkingSetBytes,
     long PrivateMemoryBytes,
     int ThreadCount,
-    bool CpuUsageAvailable = false);
+    bool CpuUsageAvailable = false,
+    double DiskReadBytesPerSecond = 0,
+    double DiskWriteBytesPerSecond = 0,
+    double NetworkReceiveBytesPerSecond = 0,
+    double NetworkSendBytesPerSecond = 0);
 
 public sealed record ManagedProcessSnapshot(
     string TaskName,
@@ -39,6 +44,18 @@ public sealed record ManagedProcessSnapshot(
     public long PrivateMemoryBytes => Processes.Sum(process => process.PrivateMemoryBytes);
 
     public int ThreadCount => Processes.Sum(process => process.ThreadCount);
+
+    [JsonPropertyName("total_disk_read_bytes_per_second")]
+    public double TotalDiskReadBytesPerSecond => Math.Round(Processes.Sum(item => item.DiskReadBytesPerSecond), 2);
+
+    [JsonPropertyName("total_disk_write_bytes_per_second")]
+    public double TotalDiskWriteBytesPerSecond => Math.Round(Processes.Sum(item => item.DiskWriteBytesPerSecond), 2);
+
+    [JsonPropertyName("total_network_receive_bytes_per_second")]
+    public double TotalNetworkReceiveBytesPerSecond => Math.Round(Processes.Sum(item => item.NetworkReceiveBytesPerSecond), 2);
+
+    [JsonPropertyName("total_network_send_bytes_per_second")]
+    public double TotalNetworkSendBytesPerSecond => Math.Round(Processes.Sum(item => item.NetworkSendBytesPerSecond), 2);
 
     public DateTimeOffset? StartedAt => Processes
         .Where(process => process.StartedAt is not null)
@@ -115,6 +132,9 @@ public sealed record RemoteHostDefinition
 
     [JsonPropertyName("command_timeout_seconds")]
     public int CommandTimeoutSeconds { get; init; } = 20;
+
+    [JsonPropertyName("proxy_uri")]
+    public string? ProxyUri { get; init; }
 }
 
 public static class RemoteHostDefinitionValidator
@@ -159,7 +179,137 @@ public static class RemoteHostDefinitionValidator
         }
         _ = ResolveLocalFilePath(definition.KnownHostsFile);
         if (definition.Authentication == RemoteAuthenticationMode.PrivateKey) { _ = ResolveLocalFilePath(definition.IdentityFile!); }
+        ValidateProxyUri(definition.ProxyUri);
     }
+
+    public static void ValidateProxyUri(string? proxyUri)
+    {
+        if (string.IsNullOrWhiteSpace(proxyUri))
+        {
+            return;
+        }
+
+        if (!TryParseProxyEndpoint(proxyUri, out _, out _, out _, out var error))
+        {
+            throw new ArgumentException(error ?? "Invalid proxy URI.", nameof(proxyUri));
+        }
+    }
+
+    public static bool TryParseProxyEndpoint(
+        string? proxyUri,
+        out string scheme,
+        out string host,
+        out int port,
+        out string? error)
+    {
+        scheme = string.Empty;
+        host = string.Empty;
+        port = 0;
+        if (string.IsNullOrWhiteSpace(proxyUri))
+        {
+            error = null;
+            return false;
+        }
+
+        if (proxyUri.Length > 256)
+        {
+            error = "ProxyUri requires 1..256 characters.";
+            return false;
+        }
+
+        if (proxyUri.Any(character => char.IsControl(character) || char.IsWhiteSpace(character)))
+        {
+            error = "ProxyUri contains unsupported whitespace or control characters.";
+            return false;
+        }
+
+        var separator = proxyUri.IndexOf("://", StringComparison.Ordinal);
+        string authority;
+        if (separator >= 0)
+        {
+            scheme = proxyUri[..separator].ToLowerInvariant();
+            if (scheme is not ("socks5" or "socks5h" or "http"))
+            {
+                scheme = string.Empty;
+                error = "ProxyUri scheme must be socks5, socks5h, or http.";
+                return false;
+            }
+            authority = proxyUri[(separator + 3)..];
+        }
+        else
+        {
+            scheme = "socks5";
+            authority = proxyUri;
+        }
+
+        if (string.IsNullOrEmpty(authority) || authority.IndexOfAny(['/', '?', '#', '@', '\\']) >= 0)
+        {
+            scheme = string.Empty;
+            error = "ProxyUri must use [scheme://]host:port without credentials, paths, or query parameters.";
+            return false;
+        }
+
+        string portText;
+        if (authority.StartsWith('['))
+        {
+            var closeBracket = authority.IndexOf(']');
+            if (closeBracket <= 1 || closeBracket + 2 >= authority.Length || authority[closeBracket + 1] != ':')
+            {
+                scheme = string.Empty;
+                error = "ProxyUri IPv6 endpoint must use [host]:port format.";
+                return false;
+            }
+            host = authority[1..closeBracket];
+            portText = authority[(closeBracket + 2)..];
+            if (Uri.CheckHostName(host) != UriHostNameType.IPv6)
+            {
+                scheme = string.Empty;
+                host = string.Empty;
+                error = "ProxyUri contains an invalid IPv6 host.";
+                return false;
+            }
+        }
+        else
+        {
+            var colon = authority.IndexOf(':');
+            if (colon <= 0 || colon != authority.LastIndexOf(':') || colon == authority.Length - 1)
+            {
+                scheme = string.Empty;
+                error = "ProxyUri must include both host and port (host:port).";
+                return false;
+            }
+            host = authority[..colon];
+            portText = authority[(colon + 1)..];
+            if (Uri.CheckHostName(host) is UriHostNameType.Unknown or UriHostNameType.Basic or UriHostNameType.IPv6)
+            {
+                scheme = string.Empty;
+                host = string.Empty;
+                error = "ProxyUri contains an invalid host.";
+                return false;
+            }
+        }
+
+        if (!portText.All(character => character is >= '0' and <= '9')
+            || !int.TryParse(portText, NumberStyles.None, CultureInfo.InvariantCulture, out port)
+            || port is < 1 or > 65535)
+        {
+            scheme = string.Empty;
+            host = string.Empty;
+            port = 0;
+            error = "ProxyUri port must be between 1 and 65535.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    public static string NormalizeProxyUri(string? proxyUri) =>
+        TryParseProxyEndpoint(proxyUri, out var scheme, out var host, out var port, out _)
+            ? host.Contains(':', StringComparison.Ordinal)
+                ? $"{scheme}://[{host.ToLowerInvariant()}]:{port.ToString(CultureInfo.InvariantCulture)}"
+                : $"{scheme}://{host.ToLowerInvariant()}:{port.ToString(CultureInfo.InvariantCulture)}"
+            : string.Empty;
 
     // Lexical only: configuration CRUD must not probe a network path or open credentials.
     public static string ResolveLocalFilePath(string value)

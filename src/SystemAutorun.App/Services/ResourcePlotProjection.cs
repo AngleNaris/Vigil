@@ -11,7 +11,7 @@ internal sealed record ResourcePlotSeries(IReadOnlyList<PlotPoint> Cpu, IReadOnl
     internal static ResourcePlotSeries From(ResourceHistoryResult result) => From(result.Source, result.From, result.To, result.Points,
         TimeSpan.FromSeconds(result.SourceIntervalSeconds * 1.5));
     internal static ResourcePlotSeries From(RecentResourceHistoryResult result) => From(result.Source, result.From, result.To, result.Points,
-        TimeSpan.FromMilliseconds(result.SourceIntervalMilliseconds * 1.5));
+        result.RemoteHostId is not null ? TimeSpan.FromSeconds(15) : TimeSpan.FromMilliseconds(result.SourceIntervalMilliseconds * 1.5));
     private static ResourcePlotSeries From(ResourceHistorySource source, DateTimeOffset from, DateTimeOffset to, IReadOnlyList<ResourceHistoryPoint> points, TimeSpan maximumGap) => new(
         Project(source, from, to, points, point => point.CpuPercent, maximumGap), Project(source, from, to, points, point => point.MemoryBytes, maximumGap),
         Project(source, from, to, points, point => point.DiskReadBytesPerSecond, maximumGap), Project(source, from, to, points, point => point.DiskWriteBytesPerSecond, maximumGap),

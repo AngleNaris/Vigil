@@ -9,10 +9,12 @@ using SystemAutorun.Windows.Execution;
 
 namespace SystemAutorun.Windows.Health;
 
-public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSource
+public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostAdaptiveStreamSource
 {
     private const int MaximumOutputCharacters = 64 * 1024;
     private const int MaximumErrorCharacters = 4096;
+    private const int MinimumIntervalMilliseconds = 250;
+    private const int MaximumIntervalMilliseconds = 60_000;
 
     private const string WindowsProbeCore = """
         $ErrorActionPreference='Stop'
@@ -88,6 +90,7 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         import fcntl, json, os, socket, struct, time
         FS_TYPES = {'ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'zfs', 'f2fs', 'vfat', 'exfat', 'ntfs', 'ntfs3', 'fuseblk', 'overlay', 'reiserfs', 'jfs'}
         SKIP_PREFIX = ('/proc', '/sys', '/dev', '/run', '/snap', '/var/lib/docker', '/var/lib/containerd', '/boot/efi')
+        SKIP_NET_PREFIX = ('veth', 'docker', 'br-', 'cni', 'flannel', 'cali', 'virbr')
         def decode_mount(text):
             out = []
             i = 0
@@ -172,7 +175,7 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
                 for line in handle.readlines()[2:]:
                     name, values = line.split(':', 1)
                     name = name.strip()
-                    if name == 'lo':
+                    if name == 'lo' or name.startswith(SKIP_NET_PREFIX):
                         continue
                     try:
                         with open(f'/sys/class/net/{name}/operstate', encoding='utf-8') as state:
@@ -245,6 +248,8 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         def read_threads():
             with open('/proc/loadavg', encoding='utf-8') as handle:
                 return int(handle.read().split()[3].split('/')[1])
+        def read_proc_counts():
+            return sum(1 for name in os.listdir('/proc') if name.isdigit()), read_threads()
         os_name = 'Linux'
         try:
             with open('/etc/os-release', encoding='utf-8') as handle:
@@ -255,7 +260,7 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         hostname = socket.gethostname()
         logical_processor_count = os.cpu_count() or 0
         blocks = whole_blocks()
-        def sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, elapsed_ms):
+        def sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, proc_counts, elapsed_ms):
             now_t = time.monotonic()
             dt = max(1e-6, now_t - prev_t)
             total2, idle2 = read_cpu_raw()
@@ -278,8 +283,7 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
             top_nics = sorted(cur_nics.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:32]
             top_nics.sort(key=lambda kv: (0 if addrs.get(kv[0], '--') != '--' else 1, kv[0]))
             nic_rows = [{'name': k, 'address': addrs.get(k, '--'), 'bytesReceived': v[0], 'bytesSent': v[1]} for k, v in top_nics]
-            process_count = sum(1 for name in os.listdir('/proc') if name.isdigit())
-            thread_count = read_threads()
+            process_count, thread_count = proc_counts
             payload = {
                 'schema': 1, 'platform': 'linux', 'hostname': hostname, 'os': os_name,
                 'uptimeSeconds': read_uptime(), 'cpuPercent': round(cpu_pct, 2),
@@ -303,8 +307,9 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         prev_nics = read_net_raw()
         disks = read_disks()
         addrs = read_net_addrs(prev_nics.keys())
+        proc_counts = read_proc_counts()
         time.sleep(0.15)
-        sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, None)
+        sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, proc_counts, None)
         """;
 
     private readonly HiddenProcessRunner _runner = new();
@@ -320,17 +325,22 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
             if (!definition.Enabled) { return RemoteHostStatusSnapshot.Offline(definition, "host_disabled"); }
             var ssh = ResolveSshExecutable();
             using var leases = SshLeaseBundle.Open(definition);
+            await using var proxyTunnel = SshLocalProxyTunnel.StartIfConfigured(definition, cancellationToken);
             var result = await _runner.RunAsync(
                 ssh,
-                BuildArguments(definition),
+                BuildArguments(definition, proxyTunnel?.LocalPort),
                 TimeSpan.FromSeconds(definition.CommandTimeoutSeconds),
                 cancellationToken, maximumOutputCharacters: MaximumOutputCharacters).ConfigureAwait(false);
             if (result.ExitCode != 0)
             {
-                throw new InvalidOperationException(
-                    string.IsNullOrWhiteSpace(result.StandardError)
-                        ? $"SSH exited with code {result.ExitCode}."
-                        : Redact(result.StandardError, definition));
+                var errorMessage = string.IsNullOrWhiteSpace(result.StandardError)
+                    ? proxyTunnel?.TunnelError is { } tunnelErr
+                        ? $"SSH proxy tunnel failed: {tunnelErr}"
+                        : $"SSH exited with code {result.ExitCode}."
+                    : proxyTunnel?.TunnelError is { } tunnelDetail
+                        ? $"{result.StandardError} ({tunnelDetail})"
+                        : result.StandardError;
+                throw new InvalidOperationException(Redact(errorMessage, definition));
             }
 
             return ParseSnapshot(definition, result.StandardOutput);
@@ -343,27 +353,52 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         }
     }
 
-    public async IAsyncEnumerable<RemoteHostStatusSnapshot> StreamAsync(
+    public IAsyncEnumerable<RemoteHostStatusSnapshot> StreamAsync(
         RemoteHostDefinition definition,
         TimeSpan samplingInterval,
+        CancellationToken cancellationToken = default) =>
+        StreamCoreAsync(definition, samplingInterval, samplingIntervalUpdates: null, cancellationToken);
+
+    public IAsyncEnumerable<RemoteHostStatusSnapshot> StreamAdaptiveAsync(
+        RemoteHostDefinition definition,
+        TimeSpan initialSamplingInterval,
+        IAsyncEnumerable<TimeSpan> samplingIntervalUpdates,
+        CancellationToken cancellationToken = default) =>
+        StreamCoreAsync(definition, initialSamplingInterval, samplingIntervalUpdates, cancellationToken);
+
+    private async IAsyncEnumerable<RemoteHostStatusSnapshot> StreamCoreAsync(
+        RemoteHostDefinition definition,
+        TimeSpan samplingInterval,
+        IAsyncEnumerable<TimeSpan>? samplingIntervalUpdates,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         RemoteHostDefinitionValidator.Validate(definition);
         if (!definition.Enabled) { yield break; }
-        var intervalMs = (int)Math.Clamp(Math.Round(samplingInterval.TotalMilliseconds), 250, 10_000);
+        var intervalMs = ClampIntervalMilliseconds(samplingInterval);
         var ssh = ResolveSshExecutable();
         SshLeaseBundle? leases = SshLeaseBundle.Open(definition);
+        SshLocalProxyTunnel? proxyTunnel = null;
         Process? process = null;
         var stderrBuffer = new StringBuilder();
         Task? stderrTask = null;
+        Task? intervalTask = null;
+        using var streamCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
-            process = _runner.StartStreaming(ssh, BuildStreamArguments(definition, intervalMs));
-            process.StandardInput.Close();
-            stderrTask = DrainErrorAsync(process.StandardError, stderrBuffer, cancellationToken);
+            proxyTunnel = SshLocalProxyTunnel.StartIfConfigured(definition, streamCts.Token);
+            process = _runner.StartStreaming(ssh, BuildStreamArguments(definition, intervalMs, proxyTunnel?.LocalPort));
+            stderrTask = DrainErrorAsync(process.StandardError, stderrBuffer, streamCts.Token);
+            if (samplingIntervalUpdates is not null)
+            {
+                intervalTask = PumpSamplingIntervalUpdatesAsync(
+                    process.StandardInput,
+                    intervalMs,
+                    samplingIntervalUpdates,
+                    streamCts.Token);
+            }
 
             var firstTimeout = TimeSpan.FromSeconds(Math.Max(definition.ConnectTimeoutSeconds + 8, definition.CommandTimeoutSeconds));
-            var nextTimeout = TimeSpan.FromSeconds(Math.Max(10, definition.CommandTimeoutSeconds));
+            var nextTimeout = TimeSpan.FromSeconds(Math.Max(25, definition.CommandTimeoutSeconds));
             DateTimeOffset? anchorUtc = null;
             DateTimeOffset? lastCapturedAt = null;
             var firstSample = true;
@@ -391,10 +426,14 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
                         var exitCode = process.HasExited ? process.ExitCode : -1;
                         try { await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false); exitCode = process.ExitCode; } catch { }
                         if (stderrTask is not null) { try { await stderrTask.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false); } catch { } }
-                        var stderr = Redact(stderrBuffer.ToString(), definition);
-                        throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr)
-                            ? $"SSH stream ended before producing telemetry (exit {exitCode})."
-                            : stderr);
+                        var rawError = string.IsNullOrWhiteSpace(stderrBuffer.ToString())
+                            ? proxyTunnel?.TunnelError is { } tunnelErr
+                                ? $"SSH proxy tunnel failed: {tunnelErr}"
+                                : $"SSH stream ended before producing telemetry (exit {exitCode})."
+                            : proxyTunnel?.TunnelError is { } tunnelDetail
+                                ? $"{stderrBuffer} ({tunnelDetail})"
+                                : stderrBuffer.ToString();
+                        throw new InvalidOperationException(Redact(rawError, definition));
                     }
                     break;
                 }
@@ -418,6 +457,7 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         }
         finally
         {
+            streamCts.Cancel();
             leases?.Dispose();
             if (process is not null)
             {
@@ -426,26 +466,66 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
                 {
                     try { await stderrTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
                 }
+                if (intervalTask is not null)
+                {
+                    try { await intervalTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { }
+                }
                 process.Dispose();
+            }
+            if (proxyTunnel is not null)
+            {
+                await proxyTunnel.DisposeAsync().ConfigureAwait(false);
             }
         }
     }
 
-    internal static IReadOnlyList<string> BuildArguments(RemoteHostDefinition definition) =>
-        BuildArgumentsCore(definition, streamIntervalMs: null);
+    private static int ClampIntervalMilliseconds(TimeSpan samplingInterval) =>
+        (int)Math.Clamp(Math.Round(samplingInterval.TotalMilliseconds), MinimumIntervalMilliseconds, MaximumIntervalMilliseconds);
 
-    internal static IReadOnlyList<string> BuildStreamArguments(RemoteHostDefinition definition, int intervalMilliseconds)
+    private static async Task PumpSamplingIntervalUpdatesAsync(
+        StreamWriter stdin,
+        int currentMs,
+        IAsyncEnumerable<TimeSpan> updates,
+        CancellationToken token)
     {
-        if (intervalMilliseconds is < 250 or > 10_000)
+        try
+        {
+            await foreach (var interval in updates.WithCancellation(token).ConfigureAwait(false))
+            {
+                var nextMs = ClampIntervalMilliseconds(interval);
+                if (nextMs == currentMs)
+                {
+                    continue;
+                }
+                currentMs = nextMs;
+                await stdin.WriteAsync($"{nextMs.ToString(CultureInfo.InvariantCulture)}\n".AsMemory(), token).ConfigureAwait(false);
+                await stdin.FlushAsync(token).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or IOException or ObjectDisposedException or InvalidOperationException)
+        {
+        }
+    }
+
+    internal static IReadOnlyList<string> BuildArguments(RemoteHostDefinition definition, int? localProxyPort = null) =>
+        BuildArgumentsCore(definition, streamIntervalMs: null, localProxyPort);
+
+    internal static IReadOnlyList<string> BuildStreamArguments(RemoteHostDefinition definition, int intervalMilliseconds, int? localProxyPort = null)
+    {
+        if (intervalMilliseconds is < MinimumIntervalMilliseconds or > MaximumIntervalMilliseconds)
         {
             throw new ArgumentOutOfRangeException(nameof(intervalMilliseconds));
         }
-        return BuildArgumentsCore(definition, intervalMilliseconds);
+        return BuildArgumentsCore(definition, intervalMilliseconds, localProxyPort);
     }
 
-    private static IReadOnlyList<string> BuildArgumentsCore(RemoteHostDefinition definition, int? streamIntervalMs)
+    private static IReadOnlyList<string> BuildArgumentsCore(RemoteHostDefinition definition, int? streamIntervalMs, int? localProxyPort = null)
     {
         RemoteHostDefinitionValidator.Validate(definition);
+        if (localProxyPort is < 1 or > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(localProxyPort));
+        }
         var arguments = new List<string>
         {
             "-T", "-F", "none",
@@ -462,9 +542,21 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
             "-o", "ConnectionAttempts=1",
             "-o", "StrictHostKeyChecking=yes",
             "-o", $"UserKnownHostsFile=\"{RemoteHostDefinitionValidator.ResolveLocalFilePath(definition.KnownHostsFile).Replace('\\', '/')}\"",
-            "-p", definition.Port.ToString(CultureInfo.InvariantCulture),
-            "-l", definition.UserName,
         };
+        if (localProxyPort is { } proxyPort)
+        {
+            arguments.Add("-o");
+            arguments.Add($"HostKeyAlias={FormatHostKeyAlias(definition.Host, definition.Port)}");
+            arguments.Add("-p");
+            arguments.Add(proxyPort.ToString(CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            arguments.Add("-p");
+            arguments.Add(definition.Port.ToString(CultureInfo.InvariantCulture));
+        }
+        arguments.Add("-l");
+        arguments.Add(definition.UserName);
         if (streamIntervalMs is not null)
         {
             arguments.AddRange(["-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=2"]);
@@ -481,9 +573,21 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         }
 
         arguments.Add("--");
-        arguments.Add(definition.Host);
+        arguments.Add(localProxyPort is not null ? "127.0.0.1" : definition.Host);
         arguments.Add(BuildRemoteCommand(definition.Platform, streamIntervalMs));
         return arguments;
+    }
+
+    internal static string FormatHostKeyAlias(string host, int port)
+    {
+        var trimmed = host.Trim();
+        var unwrapped = trimmed.StartsWith('[') && trimmed.EndsWith(']') && trimmed.Length > 2
+            ? trimmed[1..^1]
+            : trimmed;
+        var normalized = unwrapped.ToLowerInvariant();
+        return port == 22
+            ? normalized
+            : $"[{normalized}]:{port.ToString(CultureInfo.InvariantCulture)}";
     }
 
     internal static RemoteHostStatusSnapshot ParseSnapshot(
@@ -702,10 +806,27 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
                     $nextDue=$origin
                     $prev=Emit-Frame $prev (($origin-$prevTicks)/1000.0) 0 $disks $true
                     $prevTicks=$origin
+                    $inTask=[Console]::In.ReadLineAsync()
+                    $rng=[System.Random]::new()
                     while($true){
-                      $nextDue+=$interval
+                      $jitter=if($interval -ge 2000){ [int]($interval * ($rng.NextDouble() * 0.4 - 0.2)) }else{ 0 }
+                      $nextDue+=$interval+$jitter
                       $wait=[int]($nextDue-$sw.ElapsedMilliseconds)
-                      if($wait -gt 0){ Start-Sleep -Milliseconds $wait }
+                      if($wait -gt 0 -and -not $inTask.IsCompleted){ [void]$inTask.Wait($wait) }
+                      if($inTask.IsCompleted){
+                        while($inTask.IsCompleted){
+                          $line=$inTask.Result
+                          if($null -eq $line){ exit 0 }
+                          $parsed=0
+                          if([int]::TryParse($line.Trim(), [ref]$parsed)){
+                            $interval=[Math]::Max(250, [Math]::Min(60000, $parsed))
+                          }
+                          $inTask=[Console]::In.ReadLineAsync()
+                        }
+                        $nextDue=$sw.ElapsedMilliseconds
+                      }elseif(($sw.ElapsedMilliseconds - $nextDue) -gt ($interval * 3)){
+                        $nextDue=$sw.ElapsedMilliseconds
+                      }
                       $nowMs=$sw.ElapsedMilliseconds
                       $refresh=($nowMs-$slowAt) -ge 5000
                       if($refresh){ $disks=Read-Disks; $slowAt=$nowMs }
@@ -719,32 +840,72 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
         {
             script = streamIntervalMs is { } ms
                 ? LinuxProbeCore + "\n" + $$"""
+                    import random, select, sys
                     interval = {{(ms / 1000d).ToString("0.###", CultureInfo.InvariantCulture)}}
+                    fd = sys.stdin.fileno()
+                    os.set_blocking(fd, False)
+                    stdin_state = {'buf': b'', 'eof': False}
+                    def poll_interval(cur_interval, timeout_sec):
+                        r, _, _ = select.select([fd], [], [], max(0.0, timeout_sec))
+                        if not r:
+                            return cur_interval, False
+                        updated = False
+                        while True:
+                            try:
+                                chunk = os.read(fd, 4096)
+                            except BlockingIOError:
+                                break
+                            if not chunk:
+                                stdin_state['eof'] = True
+                                break
+                            stdin_state['buf'] += chunk
+                        while b'\n' in stdin_state['buf']:
+                            line, stdin_state['buf'] = stdin_state['buf'].split(b'\n', 1)
+                            try:
+                                new_ms = int(line.decode('utf-8', 'ignore').strip())
+                                cur_interval = max(0.25, min(60.0, new_ms / 1000.0))
+                                updated = True
+                            except ValueError:
+                                pass
+                        return cur_interval, updated
                     prev_t = time.monotonic()
                     prev_cpu = read_cpu_raw()
                     prev_disk = read_disk_raw(blocks)
                     prev_nics = read_net_raw()
                     disks = read_disks()
                     addrs = read_net_addrs(prev_nics.keys())
+                    proc_counts = read_proc_counts()
                     time.sleep(0.15)
                     origin = time.monotonic()
                     slow_at = origin
                     next_due = origin
-                    prev_t, prev_cpu, prev_disk, prev_nics = sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, 0)
+                    prev_t, prev_cpu, prev_disk, prev_nics = sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, proc_counts, 0)
                     try:
-                        while True:
-                            next_due += interval
-                            delay = next_due - time.monotonic()
-                            if delay > 0:
-                                time.sleep(delay)
-                            elif -delay > interval * 3:
-                                next_due = time.monotonic()
+                        while not stdin_state['eof']:
+                            jitter = interval * random.uniform(-0.2, 0.2) if interval >= 2.0 else 0.0
+                            next_due += interval + jitter
+                            while True:
+                                delay = next_due - time.monotonic()
+                                if delay <= 0:
+                                    if -delay > interval * 3:
+                                        next_due = time.monotonic()
+                                    interval, _ = poll_interval(interval, 0.0)
+                                    break
+                                interval, updated = poll_interval(interval, delay)
+                                if stdin_state['eof']:
+                                    break
+                                if updated:
+                                    next_due = time.monotonic()
+                                    break
+                            if stdin_state['eof']:
+                                break
                             now_t = time.monotonic()
                             if now_t - slow_at >= 5.0:
                                 disks = read_disks()
                                 addrs = read_net_addrs(read_net_raw().keys())
+                                proc_counts = read_proc_counts()
                                 slow_at = now_t
-                            prev_t, prev_cpu, prev_disk, prev_nics = sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, round((now_t - origin) * 1000))
+                            prev_t, prev_cpu, prev_disk, prev_nics = sample_and_build(prev_t, prev_cpu, prev_disk, prev_nics, addrs, disks, proc_counts, round((now_t - origin) * 1000))
                     except (BrokenPipeError, EOFError):
                         pass
                     """
@@ -777,6 +938,7 @@ public sealed class SshRemoteHostReader : IRemoteHostReader, IRemoteHostStreamSo
                      definition.IdentityFile is { } key ? Environment.ExpandEnvironmentVariables(key) : null,
                      definition.KnownHostsFile,
                      Environment.ExpandEnvironmentVariables(definition.KnownHostsFile ?? ""),
+                     definition.ProxyUri,
                      definition.UserName,
                      Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                  }.Where(value => !string.IsNullOrWhiteSpace(value)))

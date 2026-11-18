@@ -262,4 +262,65 @@ public sealed class ResourceHistoryTests
         Assert.Null(ResourceProcessIdentity.For(process with { Processes = [process.Processes[0] with { StartedAt = null }] }, At));
         Assert.Null(ResourceProcessIdentity.For(process with { Type = "wsl" }, At));
     }
+
+    [Fact]
+    public void TaskResourceHistoryProjectsDiskAndNetworkRatesAcrossRecentAndDurableWindows()
+    {
+        var ring = new ResourceHistoryBuffer();
+        var pidIdentity = new string('1', 64);
+        for (var i = 0; i < 4; i++)
+        {
+            var at = At.AddMilliseconds(i * 500);
+            ring.Append(new(at, "agent",
+                [new("task0", Identity, at, pidIdentity, 12.5 + i, 200 + i * 10,
+                    DiskReadBytesPerSecond: 1000 + i * 100,
+                    DiskWriteBytesPerSecond: 500 + i * 50,
+                    NetworkReceiveBytesPerSecond: 2000 + i * 200,
+                    NetworkSendBytesPerSecond: 800 + i * 80)]));
+        }
+
+        var end = At.AddMilliseconds(1500);
+        var recentQuery = Query(At, end, task: true, count: 601);
+        var precise = ring.QueryPrecise(recentQuery, end, 500, Guid.Empty.ToString("N"));
+        ResourceHistoryResponseValidator.Validate(precise, recentQuery);
+        Assert.Equal(4, precise.Points.Count);
+        Assert.Equal(1000, precise.Points[0].DiskReadBytesPerSecond);
+        Assert.Equal(650, precise.Points[^1].DiskWriteBytesPerSecond);
+        Assert.Equal(2000, precise.Points[0].NetworkReceiveBytesPerSecond);
+        Assert.Equal(1040, precise.Points[^1].NetworkSendBytesPerSecond);
+
+        var durableFrames = new[]
+        {
+            new MonitoringHistoryFrame(1, "root", "agent:1", At,
+                [new("task0", Identity, ObservationHealth.Healthy, 10, 100, 1000, null, pidIdentity,
+                    DiskReadBytesPerSecond: 100, DiskWriteBytesPerSecond: 40,
+                    NetworkReceiveBytesPerSecond: 300, NetworkSendBytesPerSecond: 80)]),
+            new MonitoringHistoryFrame(1, "root", "agent:1", At.AddSeconds(10),
+                [new("task0", Identity, ObservationHealth.Healthy, 30, 300, 1000, null, pidIdentity,
+                    DiskReadBytesPerSecond: 300, DiskWriteBytesPerSecond: 120,
+                    NetworkReceiveBytesPerSecond: 500, NetworkSendBytesPerSecond: 200)]),
+        };
+        var durableQuery = Query(At, At.AddSeconds(20), task: true, source: ResourceHistorySource.Durable, count: 1);
+        var durable = ResourceHistoryProjection.ProjectDurable(durableFrames, durableQuery, At.AddSeconds(20));
+        ResourceHistoryResponseValidator.Validate(durable, durableQuery);
+        var point = Assert.Single(durable.Points);
+        Assert.False(point.BreakBefore);
+        Assert.Equal(20, point.CpuPercent);
+        Assert.Equal(200, point.MemoryBytes);
+        Assert.Equal(200, point.DiskReadBytesPerSecond);
+        Assert.Equal(80, point.DiskWriteBytesPerSecond);
+        Assert.Equal(400, point.NetworkReceiveBytesPerSecond);
+        Assert.Equal(140, point.NetworkSendBytesPerSecond);
+
+        // A partial gap in task network rates or change in ResourceIdentity breaks continuity.
+        var partialFrames = new[]
+        {
+            durableFrames[0],
+            new MonitoringHistoryFrame(1, "root", "agent:1", At.AddSeconds(10),
+                [new("task0", Identity, ObservationHealth.Healthy, 30, 300, 1000, null, pidIdentity,
+                    DiskReadBytesPerSecond: 300, DiskWriteBytesPerSecond: 120)]),
+        };
+        var partial = ResourceHistoryProjection.ProjectDurable(partialFrames, durableQuery, At.AddSeconds(20));
+        Assert.True(Assert.Single(partial.Points).BreakBefore);
+    }
 }

@@ -20,6 +20,7 @@ public sealed record HealthInterval(DateTimeOffset From, DateTimeOffset To, stri
 public sealed partial class DashboardPlot : FrameworkElement
 {
     internal const double SweepDurationMilliseconds = 620;
+    internal static readonly TimeSpan MaximumRenderGap = TimeSpan.FromSeconds(15);
     private static readonly FrameworkPropertyMetadata RenderMetadata =
         new(null, FrameworkPropertyMetadataOptions.AffectsRender);
     public static readonly DependencyProperty ModeProperty = DependencyProperty.Register(
@@ -738,7 +739,7 @@ public sealed partial class DashboardPlot : FrameworkElement
             var current = new Point(_plot.Left + Position(data.At) / ActualWidth * _plot.Width,
                 _plot.Bottom - (data.Value!.Value - scale.Minimum) / span * _plot.Height);
             if (previousPoint is { } prevPt && previousData is not null
-                && CanConnect(previousData, data, Services.ResourceTrendBuffer.MaximumGap)
+                && CanConnect(previousData, data, MaximumRenderGap)
                 && prevPt.X <= revealRight && current.X >= revealRight && current.X > prevPt.X)
             {
                 var t = (revealRight - prevPt.X) / (current.X - prevPt.X);
@@ -809,7 +810,7 @@ public sealed partial class DashboardPlot : FrameworkElement
             if (!Valid(point.Value)) { previous = null; currentRun = null; continue; }
             var end = new Point(_plot.Left + Position(point.At) / ActualWidth * _plot.Width,
                 _plot.Bottom - (point.Value!.Value - scale.Minimum) / span * _plot.Height);
-            if (previous is not null && currentRun is not null && CanConnect(previous, point, Services.ResourceTrendBuffer.MaximumGap))
+            if (previous is not null && currentRun is not null && CanConnect(previous, point, MaximumRenderGap))
             {
                 currentRun.Add(end);
             }

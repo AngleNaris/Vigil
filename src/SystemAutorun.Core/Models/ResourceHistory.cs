@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SystemAutorun.Core.Models;
 
 public enum ResourceHistorySource { RecentSeconds, Durable }
@@ -29,6 +31,10 @@ public sealed record RecentResourceHistoryResult(int SchemaVersion, ResourceHist
 
 // Compact memory-only captures. No command lines, paths, NICs or full process/host snapshots.
 public sealed record ResourceTaskSample(string TaskName, string TaskIdentity, DateTimeOffset CapturedAt,
-    string? ProcessIdentity, double? CpuPercent = null, long? WorkingSetBytes = null);
+    string? ProcessIdentity, double? CpuPercent = null, long? WorkingSetBytes = null,
+    [property: JsonPropertyName("dr")] double? DiskReadBytesPerSecond = null,
+    [property: JsonPropertyName("dw")] double? DiskWriteBytesPerSecond = null,
+    [property: JsonPropertyName("nr")] double? NetworkReceiveBytesPerSecond = null,
+    [property: JsonPropertyName("ns")] double? NetworkSendBytesPerSecond = null);
 public sealed record ResourceHistoryFrame(DateTimeOffset At, string Epoch,
     IReadOnlyList<ResourceTaskSample> Tasks, HostHistorySample? Host = null, DateTimeOffset? HostCapturedAt = null);

@@ -100,6 +100,79 @@ public sealed class ChartLegendAlignmentTests
         });
 
     [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public Task ServiceFourPlotsKeepBothRateDirectionsLegendsAndEdgeAlignmentAcrossDesktopWidths(bool light) =>
+        ResourceDashboardWindowTests.WithResourceWindow(light, async (model, main, _) =>
+        {
+            ColorStateAssist.SetReduceMotion(main, true);
+            Assert.Equal(MainWindowViewModel.WorkloadsPage, model.CurrentPage);
+            var scroll = Assert.IsType<ScrollViewer>(main.FindName("ServiceMetricsScroll"));
+            var diskPlot = Assert.IsType<DashboardPlot>(main.FindName("ServiceDiskPlot"));
+            var networkPlot = Assert.IsType<DashboardPlot>(main.FindName("ServiceNetworkPlot"));
+            var diskIcon = Assert.Single(Descendants(main.ServicesPage).OfType<LineIcon>(), icon => icon.Kind == "Disk");
+            var networkIcon = Assert.Single(Descendants(main.ServicesPage).OfType<LineIcon>(), icon => icon.Kind == "Network");
+            var diskReadout = Assert.IsType<TextBlock>(main.FindName("ServiceDiskReadout"));
+            var diskWriteReadout = Assert.IsType<TextBlock>(main.FindName("ServiceDiskWriteReadout"));
+            var netReadout = Assert.IsType<TextBlock>(main.FindName("ServiceNetworkReadout"));
+            var netSendReadout = Assert.IsType<TextBlock>(main.FindName("ServiceNetworkSendReadout"));
+
+            foreach (var plot in new[] { main.ServiceCpuPlot, main.ServiceMemoryPlot, diskPlot, networkPlot })
+            {
+                Assert.Contains(plot.Points!, point => point.Value is > 0);
+                Assert.Equal(TimeSpan.FromMinutes(5), plot.WindowDuration);
+            }
+            Assert.True(diskPlot.Rate);
+            Assert.True(networkPlot.Rate);
+            Assert.Contains(diskPlot.SecondaryPoints!, point => point.Value is > 0);
+            Assert.Contains(networkPlot.SecondaryPoints!, point => point.Value is > 0);
+            Assert.NotEqual("--", diskReadout.Text);
+            Assert.NotEqual("--", diskWriteReadout.Text);
+            Assert.NotEqual("--", netReadout.Text);
+            Assert.NotEqual("--", netSendReadout.Text);
+
+            var helps = Descendants(main.ServicesPage).OfType<PlotLegendHelp>().ToArray();
+            var diskHelp = Assert.Single(helps, help => help.Legend == "Disk");
+            var networkHelp = Assert.Single(helps, help => help.Legend == "Network");
+            Assert.Equal("读取", diskHelp.PrimaryName); Assert.Equal("写入", diskHelp.SecondaryName);
+            Assert.Equal("接收", networkHelp.PrimaryName); Assert.Equal("发送", networkHelp.SecondaryName);
+
+            var detailLeft = main.ServiceHeader.TranslatePoint(new Point(), main).X;
+            var detailRight = main.ServiceActions.TranslatePoint(new Point(main.ServiceActions.ActualWidth, 0), main).X;
+            foreach (var (width, height) in new[] { (920, 580), (1152, 648), (1320, 820) })
+            {
+                main.Width = width; main.Height = height;
+                scroll.ScrollToTop();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); main.UpdateLayout();
+                detailLeft = main.ServiceHeader.TranslatePoint(new Point(), main).X;
+                detailRight = main.ServiceActions.TranslatePoint(new Point(main.ServiceActions.ActualWidth, 0), main).X;
+                var cpuTop = main.ServiceCpuPlot.TranslatePoint(new Point(), main).Y;
+                var memTop = main.ServiceMemoryPlot.TranslatePoint(new Point(), main).Y;
+                Assert.InRange(Math.Abs(cpuTop - memTop), 0, 1.0);
+                StartupGuiWindowTests.CaptureStateEvidence(main, $"workloads-top-{(light ? "light" : "dark")}-{width}x{height}.png");
+
+                scroll.ScrollToBottom();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); main.UpdateLayout();
+                detailLeft = main.ServiceHeader.TranslatePoint(new Point(), main).X;
+                detailRight = main.ServiceActions.TranslatePoint(new Point(main.ServiceActions.ActualWidth, 0), main).X;
+                foreach (var plot in new[] { main.ServiceCpuPlot, main.ServiceMemoryPlot, diskPlot, networkPlot })
+                {
+                    Assert.False(plot.PlotBounds.IsEmpty);
+                    Assert.InRange(plot.ActualHeight, 117.5, 118.5);
+                }
+                Assert.InRange(Math.Abs(main.ServiceCpuPlot.TranslatePoint(new Point(main.ServiceCpuPlot.PlotBounds.Left, 0), main).X - detailLeft), 0, 1.5);
+                Assert.InRange(Math.Abs(diskPlot.TranslatePoint(new Point(diskPlot.PlotBounds.Left, 0), main).X - detailLeft), 0, 1.5);
+                Assert.InRange(Math.Abs(main.ServiceMemoryPlot.TranslatePoint(new Point(main.ServiceMemoryPlot.PlotBounds.Right, 0), main).X - detailRight), 0, 1.5);
+                Assert.InRange(Math.Abs(networkPlot.TranslatePoint(new Point(networkPlot.PlotBounds.Right, 0), main).X - detailRight), 0, 1.5);
+                Assert.InRange(Math.Abs(diskPlot.TranslatePoint(new Point(), main).Y - networkPlot.TranslatePoint(new Point(), main).Y), 0, 1.0);
+                Assert.True(diskPlot.TranslatePoint(new Point(), main).Y > main.ServiceCpuPlot.TranslatePoint(new Point(), main).Y);
+                Assert.True(diskIcon.TranslatePoint(new Point(), main).X >= detailLeft);
+                Assert.True(networkIcon.TranslatePoint(new Point(), main).X > diskIcon.TranslatePoint(new Point(), main).X);
+                StartupGuiWindowTests.CaptureStateEvidence(main, $"workloads-bottom-{(light ? "light" : "dark")}-{width}x{height}.png");
+            }
+            scroll.ScrollToTop();
+        });
+
+    [Theory]
     [InlineData("Health", "未知", "正常", "故障")]
     [InlineData("Disk", "读取", "写入", null)]
     [InlineData("Network", "接收", "发送", null)]

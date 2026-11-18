@@ -10,7 +10,24 @@ namespace SystemAutorun.Windows.Health;
 
 public sealed class ManagedProcessReader
 {
-    private readonly ConcurrentDictionary<ProcessKey, CpuSample> _cpuSamples = new();
+    private readonly ConcurrentDictionary<ProcessKey, ProcessSample> _samples = new();
+    private readonly Func<IProcessNetworkCounterSource> _networkCounterAccessor;
+    private readonly Func<IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>?> _nativeMetricsProvider;
+
+    public ManagedProcessReader()
+        : this(null, null)
+    {
+    }
+
+    internal ManagedProcessReader(
+        IProcessNetworkCounterSource? networkCounterSource = null,
+        Func<IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>?>? nativeMetricsProvider = null)
+    {
+        _networkCounterAccessor = networkCounterSource is null
+            ? static () => ProcessNetworkCounterTracker.Shared
+            : () => networkCounterSource;
+        _nativeMetricsProvider = nativeMetricsProvider ?? NativeMethods.TryReadProcessMetrics;
+    }
 
     public async Task<IReadOnlyList<ManagedProcessSnapshot>> ReadAsync(
         IReadOnlyList<AutorunTask> tasks,
@@ -18,30 +35,37 @@ public sealed class ManagedProcessReader
         IHealthProbe healthProbe,
         CancellationToken cancellationToken = default)
     {
-        // R105: every enabled workload is sampled (CPU, memory, health history). ExpectedRunning still
-        // decides recovery and "常驻" alert counts elsewhere; a disabled tracked task stays reported as OFF.
+        // R105: every enabled workload is sampled (CPU, memory, disk/network IO, health history).
+        // ExpectedRunning still decides recovery and "常驻" alert counts elsewhere; a disabled tracked task stays reported as OFF.
         var monitored = tasks.Where(task => task.Enabled || task.ExpectedRunning).ToArray();
-        // Aliases may include the same PID. One physical read per capture keeps their CPU baselines,
+        var probes = await Task.WhenAll(monitored.Select(task =>
+            ProbeTaskAsync(task, executor, healthProbe, cancellationToken))).ConfigureAwait(false);
+        var allRootPids = probes.SelectMany(probe => probe.ProcessIds).ToHashSet();
+
+        // Aliases may include the same PID. One physical read per capture keeps their CPU/IO baselines,
         // memory and first-sample unknown identical; GetOrAdd's factory alone can run more than once.
-        var nativeSnapshot = new Lazy<Dictionary<int, NativeMethods.NativeProcessMetric>?>(
-            NativeMethods.TryReadProcessMetrics,
+        var nativeSnapshot = new Lazy<IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>?>(
+            _nativeMetricsProvider,
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        var childrenByParent = new Lazy<Dictionary<int, List<int>>>(
+            () => BuildChildrenByParent(nativeSnapshot.Value, allRootPids),
             LazyThreadSafetyMode.ExecutionAndPublication);
         var captures = new ConcurrentDictionary<int, Lazy<ManagedProcessInstanceSnapshot?>>();
-        var snapshots = await Task.WhenAll(monitored.Select(task =>
-            ReadTaskAsync(task, executor, healthProbe, captures, nativeSnapshot, cancellationToken))).ConfigureAwait(false);
-        RemoveStaleSamples(snapshots);
-        return snapshots
+        var activeKeys = new ConcurrentDictionary<ProcessKey, byte>();
+
+        var snapshots = probes.Select(probe => BuildSnapshot(probe, captures, nativeSnapshot, childrenByParent, activeKeys))
             .OrderBy(snapshot => snapshot.State == "FAIL" ? 0 : snapshot.State == "OK" ? 1 : 2)
             .ThenBy(snapshot => snapshot.TaskName, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
+
+        RemoveStaleSamples(activeKeys);
+        return snapshots;
     }
 
-    private async Task<ManagedProcessSnapshot> ReadTaskAsync(
+    private static async Task<TaskProbeResult> ProbeTaskAsync(
         AutorunTask task,
         ITaskExecutor executor,
         IHealthProbe healthProbe,
-        ConcurrentDictionary<int, Lazy<ManagedProcessInstanceSnapshot?>> captures,
-        Lazy<Dictionary<int, NativeMethods.NativeProcessMetric>?> nativeSnapshot,
         CancellationToken cancellationToken)
     {
         var health = task.Enabled
@@ -55,58 +79,200 @@ public sealed class ManagedProcessReader
             : isWslWorkload && health.Healthy
                 ? executor.FindProcessIds(task)
                 : Array.Empty<int>();
-        var processes = processIds
-            .Distinct()
-            .Select(processId => captures.GetOrAdd(processId, id => new(() => TryReadProcess(id, capturedAt, nativeSnapshot))).Value)
+        return new TaskProbeResult(task, capturedAt, health, processIds.Distinct().ToArray());
+    }
+
+    private ManagedProcessSnapshot BuildSnapshot(
+        TaskProbeResult probe,
+        ConcurrentDictionary<int, Lazy<ManagedProcessInstanceSnapshot?>> captures,
+        Lazy<IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>?> nativeSnapshot,
+        Lazy<Dictionary<int, List<int>>> childrenByParent,
+        ConcurrentDictionary<ProcessKey, byte> activeKeys)
+    {
+        var processes = probe.ProcessIds
+            .Select(processId => captures.GetOrAdd(
+                processId,
+                id => new(() => TryReadProcess(id, probe.CapturedAt, nativeSnapshot, childrenByParent, activeKeys),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value)
             .Where(snapshot => snapshot is not null)
             .Cast<ManagedProcessInstanceSnapshot>()
             .OrderBy(snapshot => snapshot.ProcessId)
             .ToArray();
-        var state = !task.Enabled ? "OFF" : !health.Observed ? "UNKNOWN" : health.Healthy ? "OK" : "FAIL";
+        var state = !probe.Task.Enabled ? "OFF" : !probe.Health.Observed ? "UNKNOWN" : probe.Health.Healthy ? "OK" : "FAIL";
         return new ManagedProcessSnapshot(
-            task.Name,
-            task.Description,
-            task.Type.ToKey(),
-            task.ExpectedRunning,
-            task.Enabled,
-            health.Healthy,
+            probe.Task.Name,
+            probe.Task.Description,
+            probe.Task.Type.ToKey(),
+            probe.Task.ExpectedRunning,
+            probe.Task.Enabled,
+            probe.Health.Healthy,
             state,
-            health.Reason,
-            health.Detail,
-            capturedAt,
+            probe.Health.Reason,
+            probe.Health.Detail,
+            probe.CapturedAt,
             processes,
-            health.Observed,
-            MonitoringTaskIdentity.For(task));
+            probe.Health.Observed,
+            MonitoringTaskIdentity.For(probe.Task));
+    }
+
+    private static Dictionary<int, List<int>> BuildChildrenByParent(
+        IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>? metrics,
+        HashSet<int> allRootPids)
+    {
+        var children = new Dictionary<int, List<int>>();
+        if (metrics is null || metrics.Count == 0 || allRootPids.Count == 0)
+        {
+            return children;
+        }
+
+        foreach (var metric in metrics.Values)
+        {
+            if (metric.ProcessId <= 4
+                || metric.ParentProcessId <= 0
+                || metric.ParentProcessId == metric.ProcessId
+                || metric.CreateFileTimeUtc <= 0
+                || allRootPids.Contains(metric.ProcessId))
+            {
+                continue;
+            }
+
+            if (!metrics.TryGetValue(metric.ParentProcessId, out var parent)
+                || metric.CreateFileTimeUtc < parent.CreateFileTimeUtc)
+            {
+                continue;
+            }
+
+            if (!children.TryGetValue(metric.ParentProcessId, out var list))
+            {
+                list = [];
+                children[metric.ParentProcessId] = list;
+            }
+            list.Add(metric.ProcessId);
+        }
+
+        return children;
     }
 
     private ManagedProcessInstanceSnapshot? TryReadProcess(
         int processId,
         DateTimeOffset capturedAt,
-        Lazy<Dictionary<int, NativeMethods.NativeProcessMetric>?> nativeSnapshot)
+        Lazy<IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>?> nativeSnapshot,
+        Lazy<Dictionary<int, List<int>>> childrenByParent,
+        ConcurrentDictionary<ProcessKey, byte> activeKeys)
     {
-        if (nativeSnapshot.Value is { } metrics
+        var root = TryReadSingleProcess(processId, capturedAt, nativeSnapshot.Value, includeImagePath: true, activeKeys);
+        if (root is null)
+        {
+            return null;
+        }
+
+        var cpuPercent = root.CpuUsagePercent;
+        var workingSetBytes = root.WorkingSetBytes;
+        var privateMemoryBytes = root.PrivateMemoryBytes;
+        var threadCount = root.ThreadCount;
+        var diskReadRate = root.DiskReadBytesPerSecond;
+        var diskWriteRate = root.DiskWriteBytesPerSecond;
+        var netRecvRate = root.NetworkReceiveBytesPerSecond;
+        var netSendRate = root.NetworkSendBytesPerSecond;
+
+        var tree = childrenByParent.Value;
+        if (tree.TryGetValue(processId, out var directChildren) && directChildren.Count > 0)
+        {
+            var visited = new HashSet<int> { processId };
+            var queue = new Queue<int>(directChildren);
+            while (queue.Count > 0)
+            {
+                var childPid = queue.Dequeue();
+                if (!visited.Add(childPid))
+                {
+                    continue;
+                }
+
+                var child = TryReadSingleProcess(childPid, capturedAt, nativeSnapshot.Value, includeImagePath: false, activeKeys);
+                if (child is null)
+                {
+                    continue;
+                }
+
+                if (child.CpuUsageAvailable)
+                {
+                    cpuPercent += child.CpuUsagePercent;
+                }
+                workingSetBytes += child.WorkingSetBytes;
+                privateMemoryBytes += child.PrivateMemoryBytes;
+                threadCount += child.ThreadCount;
+                diskReadRate += child.DiskReadBytesPerSecond;
+                diskWriteRate += child.DiskWriteBytesPerSecond;
+                netRecvRate += child.NetworkReceiveBytesPerSecond;
+                netSendRate += child.NetworkSendBytesPerSecond;
+
+                if (tree.TryGetValue(childPid, out var nestedChildren))
+                {
+                    foreach (var nested in nestedChildren)
+                    {
+                        if (!visited.Contains(nested))
+                        {
+                            queue.Enqueue(nested);
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ManagedProcessInstanceSnapshot(
+            processId,
+            root.ProcessName,
+            root.ExecutablePath,
+            root.StartedAt,
+            Math.Clamp(cpuPercent, 0, 100),
+            workingSetBytes,
+            privateMemoryBytes,
+            threadCount,
+            CpuUsageAvailable: root.CpuUsageAvailable,
+            DiskReadBytesPerSecond: Math.Round(Math.Max(0, diskReadRate), 2),
+            DiskWriteBytesPerSecond: Math.Round(Math.Max(0, diskWriteRate), 2),
+            NetworkReceiveBytesPerSecond: Math.Round(Math.Max(0, netRecvRate), 2),
+            NetworkSendBytesPerSecond: Math.Round(Math.Max(0, netSendRate), 2));
+    }
+
+    private SingleProcessObservation? TryReadSingleProcess(
+        int processId,
+        DateTimeOffset capturedAt,
+        IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>? metrics,
+        bool includeImagePath,
+        ConcurrentDictionary<ProcessKey, byte> activeKeys)
+    {
+        var (netRecvBytes, netSendBytes) = _networkCounterAccessor().ReadCumulativeBytes(processId);
+
+        if (metrics is not null
             && metrics.TryGetValue(processId, out var metric)
             && metric.CreateFileTimeUtc > 0)
         {
             var startedAt = new DateTimeOffset(DateTime.FromFileTime(metric.CreateFileTimeUtc));
             var key = new ProcessKey(processId, startedAt.UtcTicks);
-            var totalProcessorTime = TimeSpan.FromTicks(metric.TotalProcessorTimeTicks);
-            var current = new CpuSample(capturedAt, totalProcessorTime);
-            var cpuUsage = _cpuSamples.TryGetValue(key, out var previous)
-                ? CalculateCpuUsage(previous, current)
-                : null;
-            _cpuSamples[key] = current;
+            activeKeys.TryAdd(key, 0);
 
-            return new ManagedProcessInstanceSnapshot(
-                processId,
+            var current = new ProcessSample(
+                capturedAt,
+                TimeSpan.FromTicks(metric.TotalProcessorTimeTicks),
+                metric.DiskReadBytes,
+                metric.DiskWriteBytes,
+                netRecvBytes,
+                netSendBytes);
+            return ComputeObservation(
                 metric.ProcessName,
-                NativeMethods.TryGetProcessImagePath(processId),
+                includeImagePath ? NativeMethods.TryGetProcessImagePath(processId) : null,
                 startedAt,
-                cpuUsage ?? 0,
+                key,
+                current,
                 Math.Max(0, metric.WorkingSetBytes),
                 Math.Max(0, metric.PrivateBytes),
-                metric.ThreadCount,
-                CpuUsageAvailable: cpuUsage.HasValue);
+                metric.ThreadCount);
+        }
+
+        if (!includeImagePath)
+        {
+            return null;
         }
 
         try
@@ -119,23 +285,24 @@ public sealed class ManagedProcessReader
 
             var startedAt = new DateTimeOffset(process.StartTime);
             var key = new ProcessKey(processId, startedAt.UtcTicks);
-            var totalProcessorTime = process.TotalProcessorTime;
-            var current = new CpuSample(capturedAt, totalProcessorTime);
-            var cpuUsage = _cpuSamples.TryGetValue(key, out var previous)
-                ? CalculateCpuUsage(previous, current)
-                : null;
-            _cpuSamples[key] = current;
+            activeKeys.TryAdd(key, 0);
 
-            return new ManagedProcessInstanceSnapshot(
-                processId,
+            var current = new ProcessSample(
+                capturedAt,
+                process.TotalProcessorTime,
+                0,
+                0,
+                netRecvBytes,
+                netSendBytes);
+            return ComputeObservation(
                 process.ProcessName,
                 NativeMethods.TryGetProcessImagePath(processId),
                 startedAt,
-                cpuUsage ?? 0,
+                key,
+                current,
                 Math.Max(0, process.WorkingSet64),
                 Math.Max(0, process.PrivateMemorySize64),
-                process.Threads.Count,
-                CpuUsageAvailable: cpuUsage.HasValue);
+                process.Threads.Count);
         }
         catch (Exception exception) when (
             exception is ArgumentException
@@ -147,7 +314,67 @@ public sealed class ManagedProcessReader
         }
     }
 
-    private static double? CalculateCpuUsage(CpuSample previous, CpuSample current)
+    private SingleProcessObservation ComputeObservation(
+        string processName,
+        string? executablePath,
+        DateTimeOffset startedAt,
+        ProcessKey key,
+        ProcessSample current,
+        long workingSetBytes,
+        long privateMemoryBytes,
+        int threadCount)
+    {
+        double? cpuUsage = null;
+        double diskReadRate = 0;
+        double diskWriteRate = 0;
+        double netRecvRate = 0;
+        double netSendRate = 0;
+
+        if (_samples.TryGetValue(key, out var previous))
+        {
+            var elapsedSeconds = (current.CapturedAt - previous.CapturedAt).TotalSeconds;
+            cpuUsage = CalculateCpuUsage(previous, current);
+            diskReadRate = ComputeRate(previous.DiskReadBytes, current.DiskReadBytes, elapsedSeconds);
+            diskWriteRate = ComputeRate(previous.DiskWriteBytes, current.DiskWriteBytes, elapsedSeconds);
+            netRecvRate = ComputeRate(previous.NetworkReceivedBytes, current.NetworkReceivedBytes, elapsedSeconds);
+            netSendRate = ComputeRate(previous.NetworkSentBytes, current.NetworkSentBytes, elapsedSeconds);
+        }
+
+        _samples[key] = current;
+
+        return new SingleProcessObservation(
+            processName,
+            executablePath,
+            startedAt,
+            cpuUsage ?? 0,
+            workingSetBytes,
+            privateMemoryBytes,
+            threadCount,
+            cpuUsage.HasValue,
+            diskReadRate,
+            diskWriteRate,
+            netRecvRate,
+            netSendRate);
+    }
+
+    private static double ComputeRate(long previousBytes, long currentBytes, double elapsedSeconds)
+    {
+        if (elapsedSeconds <= 0)
+        {
+            return 0;
+        }
+
+        var delta = currentBytes - previousBytes;
+        if (delta <= 0)
+        {
+            return 0;
+        }
+
+        var rate = delta / elapsedSeconds;
+        return double.IsFinite(rate) ? rate : 0;
+    }
+
+    private static double? CalculateCpuUsage(ProcessSample previous, ProcessSample current)
     {
         var elapsed = current.CapturedAt - previous.CapturedAt;
         var processor = current.TotalProcessorTime - previous.TotalProcessorTime;
@@ -165,25 +392,44 @@ public sealed class ManagedProcessReader
             100);
     }
 
-    private void RemoveStaleSamples(IReadOnlyList<ManagedProcessSnapshot> snapshots)
+    private void RemoveStaleSamples(ConcurrentDictionary<ProcessKey, byte> activeKeys)
     {
-        var active = snapshots
-            .SelectMany(snapshot => snapshot.Processes)
-            .Where(process => process.StartedAt is not null)
-            .Select(process => new ProcessKey(process.ProcessId, process.StartedAt!.Value.UtcTicks))
-            .ToHashSet();
-        foreach (var key in _cpuSamples.Keys)
+        foreach (var key in _samples.Keys)
         {
-            if (!active.Contains(key))
+            if (!activeKeys.ContainsKey(key))
             {
-                _cpuSamples.TryRemove(key, out _);
+                _samples.TryRemove(key, out _);
             }
         }
     }
 
+    private readonly record struct TaskProbeResult(
+        AutorunTask Task,
+        DateTimeOffset CapturedAt,
+        HealthResult Health,
+        int[] ProcessIds);
+
+    private sealed record SingleProcessObservation(
+        string ProcessName,
+        string? ExecutablePath,
+        DateTimeOffset StartedAt,
+        double CpuUsagePercent,
+        long WorkingSetBytes,
+        long PrivateMemoryBytes,
+        int ThreadCount,
+        bool CpuUsageAvailable,
+        double DiskReadBytesPerSecond,
+        double DiskWriteBytesPerSecond,
+        double NetworkReceiveBytesPerSecond,
+        double NetworkSendBytesPerSecond);
+
     private readonly record struct ProcessKey(int ProcessId, long StartedAtUtcTicks);
 
-    private readonly record struct CpuSample(
+    private readonly record struct ProcessSample(
         DateTimeOffset CapturedAt,
-        TimeSpan TotalProcessorTime);
+        TimeSpan TotalProcessorTime,
+        long DiskReadBytes,
+        long DiskWriteBytes,
+        long NetworkReceivedBytes,
+        long NetworkSentBytes);
 }

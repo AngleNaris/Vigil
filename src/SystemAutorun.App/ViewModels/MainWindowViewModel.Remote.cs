@@ -24,9 +24,29 @@ public partial class MainWindowViewModel
         && age >= TimeSpan.FromSeconds(-5)
         && (age <= TimeSpan.FromSeconds(30) || (allowResumeGrace && InRemoteResumeGrace));
 
+    internal static bool IsPendingOrStaleObservationReason(string? reason) =>
+        string.Equals(reason, "远程观测已过期，请刷新重新查询。", StringComparison.Ordinal)
+        || string.Equals(reason, "等待当前主机的后台观测。", StringComparison.Ordinal)
+        || string.Equals(reason, "正在查询当前主机的后台观测…", StringComparison.Ordinal)
+        || string.Equals(reason, "远程主机已禁用。", StringComparison.Ordinal)
+        || string.Equals(reason, "后台配置不可用；远程观测未知，请刷新重试。", StringComparison.Ordinal);
+
+    private bool HasMultipleEnabledRemoteHosts =>
+        Hosts.Count(tab => !tab.IsLocal && tab.Definition?.Enabled == true) > 1;
+
+    private bool HasOtherRemoteHostApproachingExpiry(HostTabViewModel currentTab) =>
+        Hosts.Any(other => !ReferenceEquals(other, currentTab)
+            && !other.IsLocal
+            && other.Definition?.Enabled == true
+            && (other.RemoteSnapshot is not { Online: true } snapshot
+                || DateTimeOffset.UtcNow - snapshot.CapturedAt >= TimeSpan.FromSeconds(15)));
+
     private void SetRemoteUnavailable(HostTabViewModel tab, string reason)
     {
-        if (ReferenceEquals(SelectedHostTab, tab)) { _remoteResumeGraceUntilUtc = null; }
+        if (!IsPendingOrStaleObservationReason(reason) && ReferenceEquals(SelectedHostTab, tab))
+        {
+            _remoteResumeGraceUntilUtc = null;
+        }
         if (tab.Definition is not { } definition) { return; }
         var unavailable = RemoteHostStatusSnapshot.Offline(definition, reason);
         tab.ApplyRemoteStatus(unavailable);

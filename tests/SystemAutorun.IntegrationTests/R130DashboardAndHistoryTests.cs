@@ -201,12 +201,18 @@ public sealed class R130DashboardAndHistoryTests
             var availabilityLabel = Descendants(main.ServicesPage).OfType<TextBlock>().First(tb => tb.Text == "可用率" && tb.IsVisible);
             var cpuLabel = Assert.IsType<TextBlock>(main.FindName("ServiceCpuLabel"));
             var memoryLabel = Assert.IsType<TextBlock>(main.FindName("ServiceMemoryLabel"));
+            var diskLabel = Assert.IsType<TextBlock>(main.FindName("ServiceDiskLabel"));
+            var networkLabel = Assert.IsType<TextBlock>(main.FindName("ServiceNetworkLabel"));
             var availX = availabilityLabel.TranslatePoint(new Point(), main).X;
             var cpuX = cpuLabel.TranslatePoint(new Point(), main).X;
+            var diskX = diskLabel.TranslatePoint(new Point(), main).X;
             var memX = memoryLabel.TranslatePoint(new Point(), main).X;
+            var networkX = networkLabel.TranslatePoint(new Point(), main).X;
             Assert.InRange(Math.Abs(titleX - availX), 0, 1.0);
             Assert.InRange(Math.Abs(titleX - cpuX), 0, 1.0);
-            Assert.InRange(Math.Abs(titleX - memX), 0, 1.0);
+            Assert.InRange(Math.Abs(titleX - diskX), 0, 1.0);
+            Assert.InRange(Math.Abs(memX - networkX), 0, 1.0);
+            Assert.True(memX > cpuX);
 
             var availValue = Assert.IsType<TextBlock>(main.FindName("ServiceAvailabilityText"));
             var uptimeValue = Assert.IsType<TextBlock>(main.FindName("ServiceUptimeText"));

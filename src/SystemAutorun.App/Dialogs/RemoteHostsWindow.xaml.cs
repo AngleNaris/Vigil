@@ -175,6 +175,7 @@ public partial class RemoteHostsWindow : ToolWindow
         var authentication = SelectedValue<RemoteAuthenticationMode>(
             AuthenticationComboBox,
             "请选择 SSH 身份验证方式。");
+        var proxyUri = ProxyUriTextBox.Text.Trim();
         var definition = new RemoteHostDefinition
         {
             Id = _editingId ?? Guid.NewGuid().ToString("N"),
@@ -191,6 +192,7 @@ public partial class RemoteHostsWindow : ToolWindow
             KnownHostsFile = KnownHostsFileTextBox.Text.Trim(),
             ConnectTimeoutSeconds = connectTimeout,
             CommandTimeoutSeconds = commandTimeout,
+            ProxyUri = string.IsNullOrWhiteSpace(proxyUri) ? null : proxyUri,
         };
         RemoteHostDefinitionValidator.Validate(definition);
         var knownHosts = Path.GetFullPath(
@@ -237,6 +239,7 @@ public partial class RemoteHostsWindow : ToolWindow
             item.Value == definition.Authentication);
         IdentityFileTextBox.Text = definition.IdentityFile ?? string.Empty;
         KnownHostsFileTextBox.Text = definition.KnownHostsFile;
+        ProxyUriTextBox.Text = definition.ProxyUri ?? string.Empty;
         ConnectTimeoutTextBox.Text =
             definition.ConnectTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
         CommandTimeoutTextBox.Text =
@@ -261,6 +264,7 @@ public partial class RemoteHostsWindow : ToolWindow
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".ssh",
             "known_hosts.vigil");
+        ProxyUriTextBox.Text = string.Empty;
         ConnectTimeoutTextBox.Text = "10";
         CommandTimeoutTextBox.Text = "20";
         EnabledCheckBox.IsChecked = true;

@@ -1,4 +1,7 @@
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using SystemAutorun.Core.Models;
 using SystemAutorun.Windows.Health;
@@ -167,6 +170,151 @@ public sealed class SshRemoteHostReaderTests
         Assert.Contains("[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)", script, StringComparison.Ordinal);
         Assert.Contains("$interval=1000", script, StringComparison.Ordinal);
         Assert.Contains("elapsedMs", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProxyTunnelArgumentsUseHostKeyAliasAndLoopbackWithoutProxyCommand()
+    {
+        var customPortDef = CreateDefinition() with { ProxyUri = "socks5://127.0.0.1:10808" };
+        var args2222 = SshRemoteHostReader.BuildArguments(customPortDef, localProxyPort: 54321);
+        Assert.Contains("ProxyCommand=none", args2222);
+        Assert.Contains("ProxyJump=none", args2222);
+        Assert.Contains("HostKeyAlias=[192.168.1.20]:2222", args2222);
+        Assert.Contains("54321", args2222);
+        Assert.DoesNotContain("2222", args2222.Where((arg, idx) => idx > 0 && args2222[idx - 1] == "-p"));
+        Assert.Equal("127.0.0.1", args2222[^2]);
+
+        var port22Def = customPortDef with { Host = "VPS.3EFS.COM", Port = 22 };
+        var args22 = SshRemoteHostReader.BuildStreamArguments(port22Def, 10_000, localProxyPort: 54322);
+        Assert.Contains("HostKeyAlias=vps.3efs.com", args22);
+        Assert.Contains("54322", args22);
+        Assert.Equal("127.0.0.1", args22[^2]);
+    }
+
+    [Fact]
+    public void StreamScriptsFilterVirtualNicsCacheProcCountsAndSupportDynamicStdinRate()
+    {
+        var linuxArgs = SshRemoteHostReader.BuildStreamArguments(CreateDefinition(), 10_000);
+        var linuxCommand = linuxArgs[^1];
+        var b64Start = linuxCommand.IndexOf("b64decode('", StringComparison.Ordinal) + "b64decode('".Length;
+        var b64End = linuxCommand.IndexOf("'", b64Start, StringComparison.Ordinal);
+        var linuxScript = Encoding.UTF8.GetString(Convert.FromBase64String(linuxCommand[b64Start..b64End]));
+        Assert.Contains("SKIP_NET_PREFIX = ('veth', 'docker', 'br-', 'cni', 'flannel', 'cali', 'virbr')", linuxScript, StringComparison.Ordinal);
+        Assert.Contains("read_proc_counts", linuxScript, StringComparison.Ordinal);
+        Assert.Contains("poll_interval", linuxScript, StringComparison.Ordinal);
+        Assert.Contains("random.uniform(-0.2, 0.2)", linuxScript, StringComparison.Ordinal);
+        Assert.Contains("select.select", linuxScript, StringComparison.Ordinal);
+        Assert.Contains("interval = 10", linuxScript, StringComparison.Ordinal);
+
+        var winArgs = SshRemoteHostReader.BuildStreamArguments(CreateDefinition() with { Platform = RemoteHostPlatform.Windows }, 10_000);
+        var winScript = Encoding.Unicode.GetString(Convert.FromBase64String(winArgs[^1].Split(' ')[^1]));
+        Assert.Contains("$interval=10000", winScript, StringComparison.Ordinal);
+        Assert.Contains("ReadLineAsync()", winScript, StringComparison.Ordinal);
+        Assert.Contains("NextDouble()", winScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LocalProxyTunnelForwardsSocks5AndHttpConnectCleanly()
+    {
+        // 1. SOCKS5 loopback proxy test (domain target -> ATYP 0x03).
+        var socksProxy = new TcpListener(IPAddress.Loopback, 0);
+        socksProxy.Start(1);
+        try
+        {
+            var socksPort = ((IPEndPoint)socksProxy.LocalEndpoint).Port;
+            var socksServerTask = Task.Run(async () =>
+            {
+                using var serverClient = await socksProxy.AcceptTcpClientAsync();
+                await using var stream = serverClient.GetStream();
+                var greeting = new byte[3];
+                await stream.ReadExactlyAsync(greeting);
+                Assert.Equal([0x05, 0x01, 0x00], greeting);
+                await stream.WriteAsync(new byte[] { 0x05, 0x00 });
+
+                var reqHeader = new byte[5];
+                await stream.ReadExactlyAsync(reqHeader);
+                Assert.Equal(0x05, reqHeader[0]);
+                Assert.Equal(0x01, reqHeader[1]);
+                Assert.Equal(0x03, reqHeader[3]);
+                var domainLen = reqHeader[4];
+                var rest = new byte[domainLen + 2];
+                await stream.ReadExactlyAsync(rest);
+                var targetDomain = Encoding.ASCII.GetString(rest, 0, domainLen);
+                var targetPort = (rest[^2] << 8) | rest[^1];
+                Assert.Equal("vps.3efs.com", targetDomain);
+                Assert.Equal(2222, targetPort);
+
+                await stream.WriteAsync(new byte[] { 0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 22 });
+                await stream.WriteAsync(Encoding.ASCII.GetBytes("SSH-2.0-SOCKS5-OK\r\n"));
+                var clientLine = new byte[4];
+                await stream.ReadExactlyAsync(clientLine);
+                await stream.WriteAsync(clientLine);
+            });
+
+            var def = CreateDefinition() with { Host = "vps.3efs.com", Port = 2222, ProxyUri = $"socks5://127.0.0.1:{socksPort}" };
+            await using var tunnel = SshLocalProxyTunnel.StartIfConfigured(def, CancellationToken.None)!;
+            Assert.NotNull(tunnel);
+
+            using (var sshClient = new TcpClient())
+            {
+                await sshClient.ConnectAsync(IPAddress.Loopback, tunnel.LocalPort);
+                await using var clientStream = sshClient.GetStream();
+                var bannerBuf = new byte[19];
+                await clientStream.ReadExactlyAsync(bannerBuf);
+                Assert.Equal("SSH-2.0-SOCKS5-OK\r\n", Encoding.ASCII.GetString(bannerBuf));
+                await clientStream.WriteAsync(Encoding.ASCII.GetBytes("PING"));
+                var echoBuf = new byte[4];
+                await clientStream.ReadExactlyAsync(echoBuf);
+                Assert.Equal("PING", Encoding.ASCII.GetString(echoBuf));
+            }
+            await socksServerTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            socksProxy.Stop();
+        }
+
+        // 2. HTTP CONNECT loopback proxy test including pipelined banner right after CRLFCRLF.
+        var httpProxy = new TcpListener(IPAddress.Loopback, 0);
+        httpProxy.Start(1);
+        try
+        {
+            var httpPort = ((IPEndPoint)httpProxy.LocalEndpoint).Port;
+            var httpServerTask = Task.Run(async () =>
+            {
+                using var serverClient = await httpProxy.AcceptTcpClientAsync();
+                await using var stream = serverClient.GetStream();
+                var buffer = new byte[512];
+                var total = 0;
+                while (!Encoding.ASCII.GetString(buffer, 0, total).Contains("\r\n\r\n", StringComparison.Ordinal))
+                {
+                    var read = await stream.ReadAsync(buffer.AsMemory(total));
+                    if (read == 0) { break; }
+                    total += read;
+                }
+                var reqText = Encoding.ASCII.GetString(buffer, 0, total);
+                Assert.StartsWith("CONNECT 192.0.2.10:2222 HTTP/1.1\r\n", reqText, StringComparison.Ordinal);
+                await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\nSSH-2.0-HTTP-OK\r\n"));
+            });
+
+            var def = CreateDefinition() with { Host = "192.0.2.10", Port = 2222, ProxyUri = $"http://127.0.0.1:{httpPort}" };
+            await using var tunnel = SshLocalProxyTunnel.StartIfConfigured(def, CancellationToken.None)!;
+            Assert.NotNull(tunnel);
+
+            using (var sshClient = new TcpClient())
+            {
+                await sshClient.ConnectAsync(IPAddress.Loopback, tunnel.LocalPort);
+                await using var clientStream = sshClient.GetStream();
+                var bannerBuf = new byte[17];
+                await clientStream.ReadExactlyAsync(bannerBuf);
+                Assert.Equal("SSH-2.0-HTTP-OK\r\n", Encoding.ASCII.GetString(bannerBuf));
+            }
+            await httpServerTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            httpProxy.Stop();
+        }
     }
 
     private static RemoteHostDefinition CreateDefinition() => new()

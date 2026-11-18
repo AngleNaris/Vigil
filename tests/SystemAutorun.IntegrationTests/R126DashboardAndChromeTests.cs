@@ -307,20 +307,31 @@ public sealed class R126DashboardAndChromeTests
             Assert.InRange(Math.Abs(brandLeft - toggleIconLeft), 0, 1.0);
             Assert.InRange(Math.Abs(brandLeft - rowLeft), 0, 1.0);
 
-            // 2. Service detail left (6 DIP from divider) & right edge (6 DIP from window right, aligned with close chrome).
+            // 2. Service detail left (6 DIP from divider) & right edge (6 DIP from window right, aligned with close chrome) in 2x2 chart layout.
             var activityIcon = Descendants(main).OfType<LineIcon>().First(icon => icon.Kind == "Activity");
             var cpuIcon = Descendants(main).OfType<LineIcon>().First(icon => icon.Kind == "Cpu");
             var memoryIcon = Descendants(main).OfType<LineIcon>().First(icon => icon.Kind == "Memory");
-            var cpuBorder = Ancestors(cpuIcon).OfType<Border>().First();
-            var memoryBorder = Ancestors(memoryIcon).OfType<Border>().First();
+            var diskIcon = Descendants(main).OfType<LineIcon>().First(icon => icon.Kind == "Disk");
+            var networkIcon = Descendants(main).OfType<LineIcon>().First(icon => icon.Kind == "Network");
+            var cpuIconBorder = Ancestors(cpuIcon).OfType<Border>().First();
+            var diskIconBorder = Ancestors(diskIcon).OfType<Border>().First();
+            var cpuBorder = Assert.IsType<Border>(main.FindName("ServiceCpuCell"));
+            var memoryBorder = Assert.IsType<Border>(main.FindName("ServiceMemoryCell"));
+            var diskBorder = Assert.IsType<Border>(main.FindName("ServiceDiskCell"));
+            var networkBorder = Assert.IsType<Border>(main.FindName("ServiceNetworkCell"));
+            var networkPlot = Assert.IsType<DashboardPlot>(main.FindName("ServiceNetworkPlot"));
             var healthFrame = Assert.IsType<Border>(main.ServiceHealthPlot.Parent);
             var headerLeft = main.ServiceHeader.TranslatePoint(new Point(), main).X;
             var sidebarDividerRight = 1 + main.ServicesPage.ColumnDefinitions[0].ActualWidth;
             Assert.InRange(Math.Abs(headerLeft - (sidebarDividerRight + 6)), 0, 1.0);
             Assert.InRange(Math.Abs(headerLeft - activityIcon.TranslatePoint(new Point(), main).X), 0, 1.0);
             Assert.InRange(Math.Abs(headerLeft - healthFrame.TranslatePoint(new Point(), main).X), 0, 1.0);
-            Assert.InRange(Math.Abs(headerLeft - cpuBorder.TranslatePoint(new Point(), main).X), 0, 1.0);
-            Assert.InRange(Math.Abs(headerLeft - memoryBorder.TranslatePoint(new Point(), main).X), 0, 1.0);
+            Assert.InRange(Math.Abs(headerLeft - cpuIconBorder.TranslatePoint(new Point(), main).X), 0, 1.0);
+            Assert.InRange(Math.Abs(headerLeft - diskIconBorder.TranslatePoint(new Point(), main).X), 0, 1.0);
+            Assert.InRange(Math.Abs(cpuBorder.TranslatePoint(new Point(), main).Y - memoryBorder.TranslatePoint(new Point(), main).Y), 0, 1.0);
+            Assert.InRange(Math.Abs(diskBorder.TranslatePoint(new Point(), main).Y - networkBorder.TranslatePoint(new Point(), main).Y), 0, 1.0);
+            Assert.True(memoryIcon.TranslatePoint(new Point(), main).X > cpuIcon.TranslatePoint(new Point(), main).X);
+            Assert.True(networkIcon.TranslatePoint(new Point(), main).X > diskIcon.TranslatePoint(new Point(), main).X);
             Assert.Equal(0.5d, main.ServiceCpuPlot.PlotBounds.Left, 1.0);
             Assert.Equal(0.5d, main.ServiceCpuPlot.ActualWidth - main.ServiceCpuPlot.PlotBounds.Right, 1.0);
 
@@ -329,12 +340,14 @@ public sealed class R126DashboardAndChromeTests
             var topChromeRight = closeBorder.TranslatePoint(new Point(closeBorder.ActualWidth, 0), main).X;
             var serviceActionsRight = main.ServiceActions.TranslatePoint(new Point(main.ServiceActions.ActualWidth, 0), main).X;
             var healthFrameRight = healthFrame.TranslatePoint(new Point(healthFrame.ActualWidth, 0), main).X;
-            var cpuPlotRight = main.ServiceCpuPlot.TranslatePoint(new Point(main.ServiceCpuPlot.PlotBounds.Right, 0), main).X;
+            var cpuPlotLeft = main.ServiceCpuPlot.TranslatePoint(new Point(main.ServiceCpuPlot.PlotBounds.Left, 0), main).X;
             var memPlotRight = main.ServiceMemoryPlot.TranslatePoint(new Point(main.ServiceMemoryPlot.PlotBounds.Right, 0), main).X;
+            var networkPlotRight = networkPlot.TranslatePoint(new Point(networkPlot.PlotBounds.Right, 0), main).X;
             Assert.InRange(Math.Abs(topChromeRight - serviceActionsRight), 0, 1.0);
             Assert.InRange(Math.Abs(topChromeRight - healthFrameRight), 0, 1.0);
-            Assert.InRange(Math.Abs(topChromeRight - cpuPlotRight), 0, 1.0);
-            Assert.InRange(Math.Abs(topChromeRight - memPlotRight), 0, 1.0);
+            Assert.InRange(Math.Abs(headerLeft - cpuPlotLeft), 0, 1.5);
+            Assert.InRange(Math.Abs(topChromeRight - memPlotRight), 0, 1.5);
+            Assert.InRange(Math.Abs(topChromeRight - networkPlotRight), 0, 1.5);
 
             // 3. Health '?' legend optical vertical center relative to '可用率' label.
             var healthLegend = Descendants(main).OfType<PlotLegendHelp>().First(item => item.Legend == "Health");
@@ -499,16 +512,19 @@ public sealed class R126DashboardAndChromeTests
             }
             finally { model.HostOs = prevOs; }
 
-            // 3. Redesigned Services CPU/Memory compact heading + full-width plots.
+            // 3. Redesigned Services CPU/Memory compact heading + balanced 2x2 column plots.
             main.SelectTab(MainWindowViewModel.WorkloadsPage);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             main.UpdateLayout();
             var cpuHeading = Assert.IsType<MetricHeadingPanel>(main.FindName("ServiceCpuHeading"));
             var memHeading = Assert.IsType<MetricHeadingPanel>(main.FindName("ServiceMemoryHeading"));
+            var cpuCell = Assert.IsType<Border>(main.FindName("ServiceCpuCell"));
+            var memCell = Assert.IsType<Border>(main.FindName("ServiceMemoryCell"));
             Assert.True(cpuHeading.IsVisible);
             Assert.True(memHeading.IsVisible);
-            Assert.True(main.ServiceCpuPlot.ActualWidth >= main.ServiceHealthPlot.ActualWidth - 4,
-                $"Expected full-width CPU plot ({main.ServiceCpuPlot.ActualWidth}) matching health ({main.ServiceHealthPlot.ActualWidth}).");
+            Assert.InRange(Math.Abs(main.ServiceCpuPlot.ActualWidth - main.ServiceMemoryPlot.ActualWidth), 0, 2.0);
+            Assert.True(cpuCell.ActualWidth + memCell.ActualWidth >= main.ServiceHealthPlot.ActualWidth,
+                $"Expected 2x2 chart row ({cpuCell.ActualWidth + memCell.ActualWidth}) spanning health width ({main.ServiceHealthPlot.ActualWidth}).");
 
             // 4. Tab-switch delayed sweep works across Overview <-> Workloads (including scrolled off-fold host plots) after TickDashboard().
             if (!light && SystemParameters.ClientAreaAnimation)

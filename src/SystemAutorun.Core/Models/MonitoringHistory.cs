@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SystemAutorun.Core.Models;
 
 public enum ObservationHealth { Unknown, Healthy, Fault }
@@ -11,7 +13,11 @@ public sealed record TaskHistorySample(
     long? WorkingSetBytes = null,
     long? PhysicalMemoryBytes = null,
     DateTimeOffset? ValidUntil = null,
-    string? ResourceIdentity = null);
+    string? ResourceIdentity = null,
+    [property: JsonPropertyName("dr")] double? DiskReadBytesPerSecond = null,
+    [property: JsonPropertyName("dw")] double? DiskWriteBytesPerSecond = null,
+    [property: JsonPropertyName("nr")] double? NetworkReceiveBytesPerSecond = null,
+    [property: JsonPropertyName("ns")] double? NetworkSendBytesPerSecond = null);
 
 public sealed record HostHistorySample(
     double? CpuPercent = null,

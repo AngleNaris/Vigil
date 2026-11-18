@@ -372,6 +372,111 @@ public sealed class RemoteHostStreamingAndUiTests
     }
 
     [Fact]
+    public async Task AdaptiveMonitorSwitchesForegroundBackgroundRatesGuardsBackoffAndRestartsOnProxyChange()
+    {
+        var adaptiveSource = new AdaptiveControlledStreamSource();
+        var baseNow = DateTimeOffset.UtcNow;
+        var clock = new MutableClock(baseNow.AddSeconds(-18));
+        MonitoringHistoryStore? history = null;
+        await using var fixture = new ConfigurationControlPlaneTests.ServerFixture(
+            remoteMonitorFactory: (workspace, instance) => new AgentRemoteHostMonitor(workspace, adaptiveSource, instance, clock: clock),
+            pairedMonitorFactory: (workspace, instance, remote) =>
+            {
+                history = new MonitoringHistoryStore(workspace.Paths, clock: clock);
+                return new AgentMonitor(workspace, new EmptyLocalSource(), instance, history,
+                    clock: clock, interval: TimeSpan.FromMilliseconds(500), healthInterval: TimeSpan.FromSeconds(10), remoteMonitor: remote);
+            });
+
+        try
+        {
+            var arm = LinuxDef(fixture.Root, "arm-1", "10.18.245.127");
+            var configClient = new AgentConfigurationClient(fixture.Client);
+            _ = await configClient.ReadAsync();
+            _ = await configClient.MutateAsync<ApplicationSettings>("remote-add", payload: arm);
+
+            using var loopCts = new CancellationTokenSource();
+            var remoteLoop = fixture.RemoteMonitor!.RunAsync(loopCts.Token);
+            try
+            {
+                // 1. Starts in background mode (10s).
+                var session1 = await adaptiveSource.WaitSessionAsync("arm-1", 1);
+                Assert.Equal(TimeSpan.FromSeconds(10), session1.InitialSamplingInterval);
+
+                await session1.PushAsync(LinuxSample(arm, clock.Now.AddSeconds(-20), 12, 1000));
+                await session1.PushAsync(LinuxSample(arm, clock.Now.AddSeconds(-10), 16, 2000));
+                await session1.PushAsync(LinuxSample(arm, clock.Now, 20, 3000));
+                await WaitUntilAsync(() => fixture.RemoteMonitor.GetFreshSnapshots(clock.Now).Count == 1);
+
+                // 2. Active remote query switches stream to foreground (500ms).
+                var hostClient = new AgentHostClient(fixture.Client);
+                var status = await hostClient.ReadRemoteAsync("arm-1");
+                Assert.True(status.Available);
+                await WaitUntilAsync(() => session1.IntervalUpdates.Contains(TimeSpan.FromMilliseconds(500)));
+
+                // 3. After foreground lease expires (15s), next sample drops stream back to background (10s).
+                clock.Advance(TimeSpan.FromSeconds(16));
+                await session1.PushAsync(LinuxSample(arm, clock.Now.AddSeconds(-6), 24, 4000));
+                await WaitUntilAsync(() => session1.IntervalUpdates.LastOrDefault() == TimeSpan.FromSeconds(10));
+
+                // 4. Background 10s samples connect continuously while reconnects break continuity.
+                session1.Complete();
+                var session2 = await adaptiveSource.WaitSessionAsync("arm-1", 2);
+                clock.Advance(TimeSpan.FromSeconds(1));
+                await session2.PushAsync(LinuxSample(arm, clock.Now, 30, 5000));
+
+                var monitoringClient = new DashboardMonitoringClient(fixture.Client);
+                await WaitUntilAsync(async () =>
+                {
+                    var check = await monitoringClient.ReadRecentResourcesAsync(
+                        new ResourceHistoryQuery(clock.Now.AddMinutes(-5), clock.Now, 601, RemoteHostId: "arm-1"));
+                    return check.Points.Count >= 5;
+                });
+                var recent = await monitoringClient.ReadRecentResourcesAsync(
+                    new ResourceHistoryQuery(clock.Now.AddMinutes(-5), clock.Now, 601, RemoteHostId: "arm-1"));
+                ResourceHistoryResponseValidator.Validate(recent, new ResourceHistoryQuery(clock.Now.AddMinutes(-5), clock.Now, 601, RemoteHostId: "arm-1"));
+                Assert.False(recent.Points[1].BreakBefore);
+                Assert.False(recent.Points[2].BreakBefore);
+                Assert.False(recent.Points[3].BreakBefore);
+                Assert.True(recent.Points[4].BreakBefore);
+
+                var projected = ResourcePlotSeries.From(recent);
+                Assert.True(DashboardPlot.CanConnect(projected.Cpu[0], projected.Cpu[1], DashboardPlot.MaximumRenderGap));
+                Assert.True(DashboardPlot.CanConnect(projected.Cpu[2], projected.Cpu[3], DashboardPlot.MaximumRenderGap));
+                Assert.False(DashboardPlot.CanConnect(projected.Cpu[3], projected.Cpu[4], DashboardPlot.MaximumRenderGap));
+
+                // 5. Failing stream during backoff must NOT be nudged into reconnect storms by ReadRemoteAsync polling.
+                session2.Fail(new InvalidOperationException("gfw reset"));
+                await WaitUntilAsync(async () => !(await hostClient.ReadRemoteAsync("arm-1")).Available);
+                for (var poll = 0; poll < 5; poll++)
+                {
+                    var offline = await hostClient.ReadRemoteAsync("arm-1");
+                    Assert.False(offline.Available);
+                    Assert.Equal("remote_unavailable", offline.Reason);
+                    await Task.Delay(150);
+                }
+                Assert.Equal(2, adaptiveSource.TotalSessions("arm-1"));
+
+                // 6. Updating ProxyUri restarts the stream worker without altering remote history identity.
+                await configClient.ReadAsync();
+                _ = await configClient.MutateAsync<ApplicationSettings>("remote-update",
+                    payload: arm with { ProxyUri = "socks5://127.0.0.1:10808" });
+                var session3 = await adaptiveSource.WaitSessionAsync("arm-1", 3);
+                Assert.Equal("socks5://127.0.0.1:10808", session3.Definition.ProxyUri);
+                Assert.True(session2.Token.IsCancellationRequested);
+            }
+            finally
+            {
+                loopCts.Cancel();
+                try { await remoteLoop; } catch (OperationCanceledException) { }
+            }
+        }
+        finally
+        {
+            history?.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task RemoteHostPreWarmedSwitchWithMotionEnabledHasZeroSkeletonFlashAndDrawsAllCharts()
     {
         var streamSource = new ControlledStreamSource();
@@ -531,6 +636,155 @@ public sealed class RemoteHostStreamingAndUiTests
                         main.Closing -= (System.ComponentModel.CancelEventHandler)closing.CreateDelegate(typeof(System.ComponentModel.CancelEventHandler), main);
                         main.Close();
                         ThemeService.Apply(previousTheme, persist: null);
+                        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                    }
+                }, TimeSpan.FromSeconds(30));
+            }
+            finally
+            {
+                loopCts.Cancel();
+                try { await remoteLoop; } catch (OperationCanceledException) { }
+            }
+        }
+        finally
+        {
+            history?.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ReturningFromBackgroundDoesNotEmitFalseRemoteOfflineAlertsWhileGenuineOfflineStillAlerts()
+    {
+        var streamSource = new ControlledStreamSource();
+        MonitoringHistoryStore? history = null;
+        await using var fixture = new ConfigurationControlPlaneTests.ServerFixture(
+            remoteMonitorFactory: (workspace, instance) => new AgentRemoteHostMonitor(workspace, streamSource, instance),
+            pairedMonitorFactory: (workspace, instance, remote) =>
+            {
+                history = new MonitoringHistoryStore(workspace.Paths);
+                return new AgentMonitor(workspace, new EmptyLocalSource(), instance, history,
+                    interval: TimeSpan.FromMilliseconds(500), healthInterval: TimeSpan.FromSeconds(10), remoteMonitor: remote);
+            });
+
+        try
+        {
+            var arm1 = LinuxDef(fixture.Root, "arm-1", "10.18.245.127") with { Name = "Oracle ARM" };
+            var arm2 = LinuxDef(fixture.Root, "arm-2", "10.18.245.128") with { Name = "魔法森林" };
+            var configClient = new AgentConfigurationClient(fixture.Client);
+            _ = await configClient.ReadAsync();
+            _ = await configClient.MutateAsync<ApplicationSettings>("settings-set",
+                payload: new ApplicationSettings { RemoteHosts = [arm1, arm2] });
+
+            using var loopCts = new CancellationTokenSource();
+            var remoteLoop = fixture.RemoteMonitor!.RunAsync(loopCts.Token);
+            try
+            {
+                var session1 = await streamSource.WaitSessionAsync("arm-1", 1);
+                var session2 = await streamSource.WaitSessionAsync("arm-2", 1);
+                var initialNow = DateTimeOffset.UtcNow;
+                await session1.PushAsync(LinuxSample(arm1, initialNow, 15, 2048));
+                await session2.PushAsync(LinuxSample(arm2, initialNow, 22, 4096));
+                await fixture.Monitor!.SampleOnceAsync();
+
+                await GuiConfigurationControlTests.RunStaAsync(async () =>
+                {
+                    if (Application.Current is not SystemAutorun.App.App)
+                    {
+                        var app = new SystemAutorun.App.App(runRuntimeStartup: false);
+                        app.InitializeComponent();
+                    }
+
+                    var cursor = new AgentConfigurationClient(fixture.Client);
+                    var model = new MainWindowViewModel(
+                        fixture.Client,
+                        new NativeCacheStore(fixture.Paths.GuiCachePath),
+                        cursor,
+                        fixture.Paths,
+                        new AgentRemoteHostReader(fixture.Client, cursor),
+                        new DashboardMonitoringClient(fixture.Client))
+                    {
+                        AutoRefresh = true,
+                    };
+                    var alerts = new List<string>();
+                    model.AlertRequested += (_, message) => alerts.Add(message);
+
+                    // Simulate --background launch: initialize while MainWindow is still hidden.
+                    var main = new SystemAutorun.App.MainWindow(
+                        model,
+                        new AgentStartupClient(fixture.Client),
+                        new StartupCacheStore(fixture.Paths.StartupCachePath))
+                    {
+                        Width = 1152,
+                        Height = 648,
+                        ShowActivated = false,
+                        ShowInTaskbar = false,
+                        WindowStartupLocation = WindowStartupLocation.Manual,
+                        Left = -32000,
+                        Top = -32000,
+                    };
+                    ColorStateAssist.SetReduceMotion(main, true);
+
+                    try
+                    {
+                        await model.InitializeAsync();
+                        Assert.False(main.IsVisible);
+                        Assert.True(model.HasMonitoringSnapshot);
+                        Assert.Empty(alerts);
+
+                        // Age cached GUI remote observations (> 30s) to simulate sitting in tray/background.
+                        var tab1 = model.Hosts.Single(tab => tab.Id == "arm-1");
+                        var tab2 = model.Hosts.Single(tab => tab.Id == "arm-2");
+                        var staleAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+                        tab1.ApplyRemoteStatus(LinuxSample(arm1, staleAt, 15, 2048));
+                        tab2.ApplyRemoteStatus(LinuxSample(arm2, staleAt, 22, 4096));
+
+                        // Open from tray for the first time and push live updates from Agent stream.
+                        var freshNow = DateTimeOffset.UtcNow;
+                        await session1.PushAsync(LinuxSample(arm1, freshNow, 19, 3072));
+                        await session2.PushAsync(LinuxSample(arm2, freshNow, 26, 5120));
+                        await fixture.Monitor!.SampleOnceAsync();
+
+                        main.Show();
+                        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                        model.TickDashboard();
+
+                        await WaitUntilStaAsync(() =>
+                            tab1.RemoteSnapshot is { Online: true } s1 && s1.CapturedAt >= freshNow.AddSeconds(-1)
+                            && tab2.RemoteSnapshot is { Online: true } s2 && s2.CapturedAt >= freshNow.AddSeconds(-1),
+                            TimeSpan.FromSeconds(10));
+                        Assert.Empty(alerts);
+
+                        // Even if a tab is manually expired in GUI cache or awaiting backend response, no false alert fires.
+                        tab2.ApplyRemoteStatus(LinuxSample(arm2, DateTimeOffset.UtcNow.AddMinutes(-3), 22, 4096));
+                        typeof(MainWindowViewModel).GetField("_remoteResumeGraceUntilUtc", BindingFlags.Instance | BindingFlags.NonPublic)!
+                            .SetValue(model, null);
+                        model.TickDashboard();
+                        Assert.False(tab2.RemoteSnapshot!.Online);
+                        Assert.Contains("过期", tab2.RemoteSnapshot.Error);
+                        Assert.Empty(alerts);
+
+                        model.SelectedHostTab = tab2;
+                        await WaitUntilStaAsync(() => model.HostStatusAvailable || model.RefreshCommand.ExecutionTask?.IsCompleted == true, TimeSpan.FromSeconds(10));
+                        Assert.Empty(alerts);
+
+                        // A genuine stream failure MUST still trigger a real offline alert.
+                        session1.Fail(new InvalidOperationException("ssh connection lost"));
+                        await WaitUntilAsync(async () =>
+                        {
+                            var probe = await new AgentHostClient(fixture.Client).ReadRemoteAsync("arm-1");
+                            return !probe.Available;
+                        });
+                        model.SelectedHostTab = tab1;
+                        if (model.RefreshCommand.ExecutionTask is { } arm1Refresh) { await arm1Refresh.WaitAsync(TimeSpan.FromSeconds(10)); }
+                        model.UpdateResourceAlerts();
+                        Assert.Contains(alerts, message => message.Contains("Oracle ARM") && message.Contains("不可用"));
+                    }
+                    finally
+                    {
+                        model.DetachDashboard();
+                        var closing = typeof(SystemAutorun.App.MainWindow).GetMethod("Window_Closing", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                        main.Closing -= (System.ComponentModel.CancelEventHandler)closing.CreateDelegate(typeof(System.ComponentModel.CancelEventHandler), main);
+                        main.Close();
                         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                     }
                 }, TimeSpan.FromSeconds(30));
@@ -733,6 +987,99 @@ public sealed class RemoteHostStreamingAndUiTests
             public ValueTask PushAsync(RemoteHostStatusSnapshot sample) => _channel.Writer.WriteAsync(sample);
             public void Complete() => _channel.Writer.TryComplete();
             public void Fail(Exception exception) { FailedImmediate = true; _channel.Writer.TryComplete(exception); }
+            public IAsyncEnumerable<RemoteHostStatusSnapshot> ReadAllAsync(CancellationToken ct) => _channel.Reader.ReadAllAsync(ct);
+        }
+    }
+
+    private sealed class MutableClock(DateTimeOffset initial) : TimeProvider
+    {
+        private DateTimeOffset _now = initial;
+        public DateTimeOffset Now => _now;
+        public void Advance(TimeSpan delta) => _now = _now.Add(delta);
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    private sealed class AdaptiveControlledStreamSource : IRemoteHostAdaptiveStreamSource
+    {
+        private readonly ConcurrentDictionary<string, ConcurrentQueue<AdaptiveSession>> _sessions = new(StringComparer.OrdinalIgnoreCase);
+
+        public int TotalSessions(string id) => _sessions.TryGetValue(id, out var queue) ? queue.Count : 0;
+
+        public async Task<AdaptiveSession> WaitSessionAsync(string id, int ordinal)
+        {
+            AdaptiveSession? match = null;
+            await WaitUntilAsync(() =>
+            {
+                if (_sessions.TryGetValue(id, out var q) && q.Count >= ordinal)
+                {
+                    match = q.ElementAt(ordinal - 1);
+                    return true;
+                }
+                return false;
+            });
+            return match!;
+        }
+
+        public IAsyncEnumerable<RemoteHostStatusSnapshot> StreamAsync(
+            RemoteHostDefinition definition,
+            TimeSpan samplingInterval,
+            CancellationToken cancellationToken = default) =>
+            StreamCoreAsync(definition, samplingInterval, updates: null, cancellationToken);
+
+        public IAsyncEnumerable<RemoteHostStatusSnapshot> StreamAdaptiveAsync(
+            RemoteHostDefinition definition,
+            TimeSpan initialSamplingInterval,
+            IAsyncEnumerable<TimeSpan> samplingIntervalUpdates,
+            CancellationToken cancellationToken = default) =>
+            StreamCoreAsync(definition, initialSamplingInterval, samplingIntervalUpdates, cancellationToken);
+
+        private async IAsyncEnumerable<RemoteHostStatusSnapshot> StreamCoreAsync(
+            RemoteHostDefinition definition,
+            TimeSpan initialSamplingInterval,
+            IAsyncEnumerable<TimeSpan>? updates,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var queue = _sessions.GetOrAdd(definition.Id, _ => new ConcurrentQueue<AdaptiveSession>());
+            var session = new AdaptiveSession(definition, initialSamplingInterval, cancellationToken);
+            queue.Enqueue(session);
+            using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var updateTask = updates is null ? Task.CompletedTask : Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var update in updates.WithCancellation(sessionCts.Token).ConfigureAwait(false))
+                    {
+                        session.IntervalUpdates.Enqueue(update);
+                    }
+                }
+                catch (OperationCanceledException) when (sessionCts.IsCancellationRequested) { }
+            }, CancellationToken.None);
+
+            try
+            {
+                await foreach (var sample in session.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    yield return sample;
+                }
+            }
+            finally
+            {
+                sessionCts.Cancel();
+                try { await updateTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            }
+        }
+
+        internal sealed class AdaptiveSession(RemoteHostDefinition definition, TimeSpan initialSamplingInterval, CancellationToken token)
+        {
+            private readonly Channel<RemoteHostStatusSnapshot> _channel = Channel.CreateUnbounded<RemoteHostStatusSnapshot>();
+            public RemoteHostDefinition Definition => definition;
+            public TimeSpan InitialSamplingInterval => initialSamplingInterval;
+            public CancellationToken Token => token;
+            public ConcurrentQueue<TimeSpan> IntervalUpdates { get; } = new();
+
+            public ValueTask PushAsync(RemoteHostStatusSnapshot sample) => _channel.Writer.WriteAsync(sample);
+            public void Complete() => _channel.Writer.TryComplete();
+            public void Fail(Exception exception) => _channel.Writer.TryComplete(exception);
             public IAsyncEnumerable<RemoteHostStatusSnapshot> ReadAllAsync(CancellationToken ct) => _channel.Reader.ReadAllAsync(ct);
         }
     }

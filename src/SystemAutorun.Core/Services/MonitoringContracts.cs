@@ -16,3 +16,12 @@ public interface IRemoteHostStreamSource
         TimeSpan samplingInterval,
         CancellationToken cancellationToken = default);
 }
+
+public interface IRemoteHostAdaptiveStreamSource : IRemoteHostStreamSource
+{
+    IAsyncEnumerable<RemoteHostStatusSnapshot> StreamAdaptiveAsync(
+        RemoteHostDefinition definition,
+        TimeSpan initialSamplingInterval,
+        IAsyncEnumerable<TimeSpan> samplingIntervalUpdates,
+        CancellationToken cancellationToken = default);
+}

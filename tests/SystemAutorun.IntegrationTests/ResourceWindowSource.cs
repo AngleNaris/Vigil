@@ -49,8 +49,11 @@ internal sealed class ResourceWindowSource(ConfigurationControlPlaneTests.Server
         {
             var identity = MonitoringTaskIdentity.For(task);
             var sample = processes.FirstOrDefault(row => row.TaskName == task.Name && row.TaskIdentity == identity);
+            var hasRates = sample is { CpuUsageAvailable: true, ProcessCount: > 0 };
             return new ResourceTaskSample(task.Name, identity, sample?.CapturedAt ?? at, ResourceProcessIdentity.For(sample, at),
-                sample is { CpuUsageAvailable: true } ? sample.CpuUsagePercent : null, sample is { ProcessCount: > 0 } ? sample.WorkingSetBytes : null);
+                hasRates ? sample!.CpuUsagePercent : null, sample is { ProcessCount: > 0 } ? sample.WorkingSetBytes : null,
+                hasRates ? sample!.TotalDiskReadBytesPerSecond : null, hasRates ? sample!.TotalDiskWriteBytesPerSecond : null,
+                hasRates ? sample!.TotalNetworkReceiveBytesPerSecond : null, hasRates ? sample!.TotalNetworkSendBytesPerSecond : null);
         }).ToArray();
         HostHistorySample? values = host is null ? null : new(host.CpuUsagePercent, Math.Max(0, host.TotalMemoryBytes - host.AvailableMemoryBytes),
             host.TotalMemoryBytes, host.DiskReadBytesPerSecond, host.DiskWriteBytesPerSecond, host.NetworkReceiveBytesPerSecond, host.NetworkSendBytesPerSecond);
@@ -59,7 +62,10 @@ internal sealed class ResourceWindowSource(ConfigurationControlPlaneTests.Server
         {
             _durable.Add(new(1, fixture.Endpoint.RootId, "r121-explicit-fixture", at,
                 rows.Select(row => new TaskHistorySample(row.TaskName, row.TaskIdentity, ObservationHealth.Healthy, row.CpuPercent,
-                    row.WorkingSetBytes, ResourceIdentity: row.ProcessIdentity)).ToArray(), Host: values));
+                    row.WorkingSetBytes, ResourceIdentity: row.ProcessIdentity,
+                    DiskReadBytesPerSecond: row.DiskReadBytesPerSecond, DiskWriteBytesPerSecond: row.DiskWriteBytesPerSecond,
+                    NetworkReceiveBytesPerSecond: row.NetworkReceiveBytesPerSecond, NetworkSendBytesPerSecond: row.NetworkSendBytesPerSecond)).ToArray(),
+                Host: values));
         }
     }
 
@@ -107,7 +113,15 @@ internal sealed class ResourceWindowSource(ConfigurationControlPlaneTests.Server
     internal static ManagedProcessSnapshot Synthetic(TaskRowViewModel task, DateTimeOffset at, int phase, bool constant = false) =>
         new(task.Name, "R121 synthetic presentation only", task.Type, true, true, true, "OK", "synthetic", "No process is started", at,
             [new(987654, "never-started-r121-fixture", null, SyntheticStarted,
-                constant ? .04 : .04 + Math.Sin(phase / 11d) * .025, (80L << 20) + (constant ? 0 : (long)(Math.Sin(phase / 27d) * (7L << 20))), 1, 1, true)],
+                constant ? .04 : .04 + Math.Sin(phase / 11d) * .025,
+                (80L << 20) + (constant ? 0 : (long)(Math.Sin(phase / 27d) * (7L << 20))),
+                1,
+                1,
+                true,
+                constant ? 0 : 1024 * (12 + Math.Sin(phase / 13d) * 6),
+                constant ? 0 : 1024 * (4 + Math.Cos(phase / 9d) * 2),
+                constant ? 0 : 1024 * (32 + Math.Sin(phase / 17d) * 10),
+                constant ? 0 : 1024 * (8 + Math.Cos(phase / 23d) * 4))],
             TaskIdentity: MonitoringTaskIdentity.For(task.Snapshot));
 
     internal static HostStatusSnapshot SyntheticHost(DateTimeOffset at, int phase) => new("R121 合成主机", "合成 Windows / 非生产记录", at,

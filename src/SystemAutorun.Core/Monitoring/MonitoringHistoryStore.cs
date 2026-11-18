@@ -642,6 +642,8 @@ public sealed class MonitoringHistoryStore : IDisposable
                 || task.TaskIdentity.Any(character => !char.IsAsciiHexDigitLower(character)) || !Enum.IsDefined(task.Health)
                 || task.CpuPercent is { } cpu && (!double.IsFinite(cpu) || cpu is < 0 or > 100)
                 || task.WorkingSetBytes is < 0 || task.PhysicalMemoryBytes is < 0
+                || InvalidRate(task.DiskReadBytesPerSecond) || InvalidRate(task.DiskWriteBytesPerSecond)
+                || InvalidRate(task.NetworkReceiveBytesPerSecond) || InvalidRate(task.NetworkSendBytesPerSecond)
                 || task.ResourceIdentity is { } resourceIdentity && (resourceIdentity.Length != 64
                     || resourceIdentity.Any(character => !char.IsAsciiHexDigitLower(character)))
                 || task.ValidUntil is { } until && (until < frame.ObservedAt || until > frame.ObservedAt + MonitoringHistoryProjection.SamplingInterval))

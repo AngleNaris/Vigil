@@ -519,7 +519,7 @@ public sealed partial class DashboardPlot
             for (var index = 0; index < points.Count; index++)
             {
                 var point = points[index]; if (!Valid(point.Value)) { continue; }
-                var connects = index > 0 && CanConnect(points[index - 1], point, ResourceTrendBuffer.MaximumGap);
+                var connects = index > 0 && CanConnect(points[index - 1], point, MaximumRenderGap);
                 if (connects && (changed[index] || changed[index - 1]))
                 { path.BeginFigure(Project(points[index - 1]), false, false); path.LineTo(Project(point), true, false); }
                 else if (changed[index] && !connects)

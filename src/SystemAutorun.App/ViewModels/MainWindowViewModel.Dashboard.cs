@@ -61,6 +61,14 @@ public partial class MainWindowViewModel
     public string DashboardMemoryMetaLabel => DashboardMemoryPercentText != "--"
         ? $"物理内存 {DashboardMemoryPercentText}"
         : "物理内存 --";
+    public string DashboardDiskReadText => DashboardProcess is { CpuUsageAvailable: true } process
+        ? TaskRate(process.TotalDiskReadBytesPerSecond) : "--";
+    public string DashboardDiskWriteText => DashboardProcess is { CpuUsageAvailable: true } process
+        ? TaskRate(process.TotalDiskWriteBytesPerSecond) : "--";
+    public string DashboardReceiveText => DashboardProcess is { CpuUsageAvailable: true } process
+        ? TaskRate(process.TotalNetworkReceiveBytesPerSecond) : "--";
+    public string DashboardSendText => DashboardProcess is { CpuUsageAvailable: true } process
+        ? TaskRate(process.TotalNetworkSendBytesPerSecond) : "--";
     public string DashboardSourceText => DashboardProcess is { } process
         ? $"进程观测 {process.CapturedAt.ToLocalTime():HH:mm:ss} · PID {string.Join(", ", process.Processes.Select(item => item.ProcessId))}"
         : "资源未知 · 尚未取得当前进程观测";
@@ -237,6 +245,7 @@ public partial class MainWindowViewModel
         nameof(DashboardEmptyTitle), nameof(DashboardEmptyDescription),
         nameof(DashboardEmptyActionLabel), nameof(DashboardEmptyActionCommand),
         nameof(DashboardCpuText), nameof(DashboardCpuMetaText), nameof(DashboardWorkingSetText), nameof(DashboardMemoryPercentText), nameof(DashboardMemoryMetaLabel), nameof(DashboardResourceCpuText),
+        nameof(DashboardDiskReadText), nameof(DashboardDiskWriteText), nameof(DashboardReceiveText), nameof(DashboardSendText),
         nameof(DashboardSourceText), nameof(DashboardUptimeHelp), nameof(DashboardWindowLabel),
         nameof(DashboardHistoryHelp), nameof(DashboardHistoryNotice), nameof(DashboardSampleClock), nameof(DashboardRefreshLabel),
         nameof(HostResourceCpuText), nameof(HostMemoryUsedText), nameof(HostDiskReadText), nameof(HostDiskWriteText), nameof(HostReceiveText), nameof(HostSendText),

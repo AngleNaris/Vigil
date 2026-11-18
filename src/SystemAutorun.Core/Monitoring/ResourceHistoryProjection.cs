@@ -39,10 +39,14 @@ public static class ResourceHistoryProjection
         if (intervalMilliseconds is not (500 or 1000)) { throw new ArgumentOutOfRangeException(nameof(intervalMilliseconds)); }
         var legacyShape = ProjectRecent(frames, query, now, truncated, warning);
         var points = legacyShape.Points.ToArray();
-        var maximumContinuousGap = TimeSpan.FromMilliseconds(intervalMilliseconds * 1.5);
+        var maximumContinuousGap = query.RemoteHostId is not null
+            ? TimeSpan.FromSeconds(15)
+            : TimeSpan.FromMilliseconds(intervalMilliseconds * 1.5);
         for (var index = 1; index < points.Length; index++)
         {
-            if (points[index].At - points[index - 1].At > maximumContinuousGap)
+            if (points[index].At - points[index - 1].At > maximumContinuousGap
+                || !string.Equals(points[index].ContinuityId, points[index - 1].ContinuityId, StringComparison.Ordinal)
+                || points[index].ContinuityId is null)
             { points[index] = points[index] with { BreakBefore = true }; }
         }
         return new(2, legacyShape.Source, legacyShape.TaskName, legacyShape.TaskIdentity, legacyShape.From, legacyShape.To,
@@ -100,7 +104,9 @@ public static class ResourceHistoryProjection
             && string.Equals(row.TaskName, query.TaskName, StringComparison.OrdinalIgnoreCase));
         return task is null ? Empty(frame.At) : new(task.CapturedAt,
             task.ProcessIdentity is { } identity ? $"{frame.Epoch}:{identity}" : null,
-            Cpu(task.CpuPercent), Nonnegative(task.WorkingSetBytes));
+            Cpu(task.CpuPercent), Nonnegative(task.WorkingSetBytes),
+            Nonnegative(task.DiskReadBytesPerSecond), Nonnegative(task.DiskWriteBytesPerSecond),
+            Nonnegative(task.NetworkReceiveBytesPerSecond), Nonnegative(task.NetworkSendBytesPerSecond));
     }
 
     private static ResourceHistoryPoint DurablePoint(MonitoringHistoryFrame frame, ResourceHistoryQuery query, string? remoteHostIdentity)
@@ -120,7 +126,9 @@ public static class ResourceHistoryProjection
         // Legacy bytes remain queryable, but unknown process boundaries are not asserted continuous.
         return task is null ? Empty(frame.ObservedAt) : new(frame.ObservedAt,
             task.ResourceIdentity is { } identity ? $"{frame.AgentInstanceId}:{identity}" : null,
-            Cpu(task.CpuPercent), Nonnegative(task.WorkingSetBytes));
+            Cpu(task.CpuPercent), Nonnegative(task.WorkingSetBytes),
+            Nonnegative(task.DiskReadBytesPerSecond), Nonnegative(task.DiskWriteBytesPerSecond),
+            Nonnegative(task.NetworkReceiveBytesPerSecond), Nonnegative(task.NetworkSendBytesPerSecond));
     }
 
     private static ResourceHistoryPoint HostPoint(DateTimeOffset at, string epoch, HostHistorySample? host) => host is null

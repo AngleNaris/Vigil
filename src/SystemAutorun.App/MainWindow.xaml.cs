@@ -268,7 +268,7 @@ public partial class MainWindow : Window, IDialogScrimHost
         {
             _dashboardClock.Start();
             if (_viewModel.AutoRefresh) { _refreshTimer.Start(); } else { _refreshTimer.Stop(); }
-            if (_hasBeenPresented && !wasActive && _viewModel.AutoRefresh)
+            if ((_hasBeenPresented || _viewModel.HasMonitoringSnapshot) && !wasActive && _viewModel.AutoRefresh)
             {
                 DataChangePulse.SetSuppress(this, true);
                 _refreshOnReturn = true;

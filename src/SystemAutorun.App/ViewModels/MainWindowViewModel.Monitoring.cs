@@ -37,6 +37,8 @@ public partial class MainWindowViewModel
         || System.Diagnostics.Stopwatch.GetElapsedTime(last) >= AutoRefreshInterval;
     private void MarkSnapshotReadStarted() => _lastSnapshotStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
 
+    internal bool HasMonitoringSnapshot => _monitoringSnapshot is not null;
+
     /// <summary>Reads only the Agent's cached monitoring snapshot. Silent: no busy state, no status text;
     /// a failure is left for the next full refresh to report, and never clears current observations.</summary>
     internal async Task RefreshLiveAsync()
@@ -73,9 +75,20 @@ public partial class MainWindowViewModel
                     || snapshot.Online && !RemoteObservationFresh(snapshot.CapturedAt))
                 { return; }
                 _dashboardNow = DateTimeOffset.UtcNow;
-                _remoteResumeGraceUntilUtc = null;
+                if (!HasMultipleEnabledRemoteHosts) { _remoteResumeGraceUntilUtc = null; }
                 tab.ApplyRemoteStatus(snapshot);
                 ApplyRemoteHostStatus(snapshot);
+                if (HasMultipleEnabledRemoteHosts && HasOtherRemoteHostApproachingExpiry(tab))
+                {
+                    var monitorSnapshot = await _monitoring.ReadSnapshotAsync(cancellation.Token);
+                    if (cancellation.IsCancellationRequested || _dashboardDisposed || !_presentationActive
+                        || generation != _remoteGeneration || !ReferenceEquals(SelectedHostTab, tab)
+                        || revision != _configuration.Revision || revision != _monitoringConfiguration?.Revision)
+                    { return; }
+                    _dashboardNow = DateTimeOffset.UtcNow;
+                    ApplyMonitoringSnapshot(monitorSnapshot);
+                    _remoteResumeGraceUntilUtc = null;
+                }
             }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -273,11 +286,11 @@ public partial class MainWindowViewModel
                     }
                     else if (_remoteCancellation is null && (!HostStatusAvailable || newer))
                     {
-                        _remoteResumeGraceUntilUtc = null;
                         tab.ApplyRemoteStatus(matched);
                         ApplyRemoteHostStatus(matched);
                     }
                 }
+                _remoteResumeGraceUntilUtc = null;
             }
             _monitoringProblem = snapshot is null ? _monitoringProblem ?? "后台未连接"
                 : !_tasksAvailable ? snapshot.Tasks.Error ?? "任务观测不可用，或配置正在重新采样"
@@ -344,7 +357,9 @@ public partial class MainWindowViewModel
                 continue;
             }
 
-            if (tab.Definition is { Enabled: true } definition && tab.RemoteSnapshot is { Online: false } offlineRemote)
+            if (tab.Definition is { Enabled: true } definition
+                && tab.RemoteSnapshot is { Online: false } offlineRemote
+                && !IsPendingOrStaleObservationReason(offlineRemote.Error))
             {
                 _highCpuSince.Remove(key);
                 tab.UpdateResourceAlert(false, string.Empty);

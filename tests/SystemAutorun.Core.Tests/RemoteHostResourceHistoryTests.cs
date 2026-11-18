@@ -187,6 +187,89 @@ public sealed class RemoteHostResourceHistoryTests
         }
     }
 
+    [Fact]
+    public void ProxyUriValidationNormalizationAndIdentityPreservation()
+    {
+        var baseDef = new RemoteHostDefinition
+        {
+            Id = "arm-1",
+            Name = "Oracle ARM",
+            Host = "10.18.245.127",
+            Port = 22,
+            UserName = "ubuntu",
+            Platform = RemoteHostPlatform.Linux,
+            Authentication = RemoteAuthenticationMode.SshAgent,
+            KnownHostsFile = @"C:\keys\known_hosts",
+        };
+        var baseIdentity = MonitoringRemoteHostIdentity.For(baseDef);
+
+        foreach (var valid in new[]
+                 {
+                     null,
+                     "",
+                     "   ",
+                     "socks5://127.0.0.1:10808",
+                     "SOCKS5H://Proxy.Local:1080",
+                     "http://127.0.0.1:8080",
+                     "127.0.0.1:10808",
+                     "socks5://[::1]:10808",
+                 })
+        {
+            RemoteHostDefinitionValidator.Validate(baseDef with { ProxyUri = valid });
+            Assert.Equal(baseIdentity, MonitoringRemoteHostIdentity.For(baseDef with { ProxyUri = valid }));
+        }
+
+        Assert.Equal("socks5://127.0.0.1:10808", RemoteHostDefinitionValidator.NormalizeProxyUri("127.0.0.1:10808"));
+        Assert.Equal("socks5h://proxy.local:1080", RemoteHostDefinitionValidator.NormalizeProxyUri("SOCKS5H://Proxy.Local:1080"));
+        Assert.Equal("socks5://[::1]:10808", RemoteHostDefinitionValidator.NormalizeProxyUri("socks5://[::1]:10808"));
+        Assert.Equal(string.Empty, RemoteHostDefinitionValidator.NormalizeProxyUri("   "));
+
+        foreach (var invalid in new[]
+                 {
+                     "ftp://127.0.0.1:21",
+                     "socks5://user@127.0.0.1:10808",
+                     "socks5://127.0.0.1:10808/path",
+                     "socks5://127.0.0.1",
+                     "socks5://127.0.0.1:0",
+                     "socks5://127.0.0.1:65536",
+                     "socks5://127.0.0.1:abc",
+                     "socks5://127.0.0.1:10808 extra",
+                     "http://[::1:1080",
+                     new string('a', 257),
+                 })
+        {
+            Assert.Throws<ArgumentException>(() => RemoteHostDefinitionValidator.Validate(baseDef with { ProxyUri = invalid }));
+        }
+    }
+
+    [Fact]
+    public void RecentPreciseAllowsTenSecondRemoteCadenceWhileBreakingReconnectsAndRealGaps()
+    {
+        var ring = new ResourceHistoryBuffer();
+        ring.Append(new ResourceHistoryFrame(At, "agent:host:1", [], new(10, 100, 1000, 10, 20, 30, 40), At));
+        ring.Append(new ResourceHistoryFrame(At.AddSeconds(10), "agent:host:1", [], new(15, 200, 1000, 15, 25, 35, 45), At.AddSeconds(10)));
+        ring.Append(new ResourceHistoryFrame(At.AddSeconds(20), "agent:host:1", [], new(20, 300, 1000, 20, 30, 40, 50), At.AddSeconds(20)));
+        // Reconnect within 5s still starts a new session epoch -> BreakBefore must be true.
+        ring.Append(new ResourceHistoryFrame(At.AddSeconds(25), "agent:host:2", [], new(25, 400, 1000, 25, 35, 45, 55), At.AddSeconds(25)));
+        // Gap > 15s within the same epoch -> BreakBefore must be true.
+        ring.Append(new ResourceHistoryFrame(At.AddSeconds(42), "agent:host:2", [], new(30, 500, 1000, 30, 40, 50, 60), At.AddSeconds(42)));
+
+        var now = At.AddSeconds(42);
+        var query = new ResourceHistoryQuery(At, now, 601, RemoteHostId: "arm-1");
+        var precise = ring.QueryPrecise(query, now, 500, Instance);
+        ResourceHistoryResponseValidator.Validate(precise, query);
+
+        Assert.Equal(5, precise.Points.Count);
+        Assert.False(precise.Points[1].BreakBefore);
+        Assert.False(precise.Points[2].BreakBefore);
+        Assert.True(precise.Points[3].BreakBefore);
+        Assert.True(precise.Points[4].BreakBefore);
+
+        var forgedGap = precise.Points.ToArray();
+        forgedGap[4] = forgedGap[4] with { BreakBefore = false };
+        Assert.Throws<InvalidDataException>(() => ResourceHistoryResponseValidator.Validate(precise with { Points = forgedGap }, query));
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;

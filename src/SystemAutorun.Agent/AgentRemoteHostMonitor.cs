@@ -10,14 +10,18 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
 {
     private const int MaximumMonitoredHosts = 32;
     private static readonly TimeSpan SyncInterval = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan FreshWindow = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan FreshWindow = TimeSpan.FromSeconds(25);
+    internal static readonly TimeSpan BackgroundSamplingInterval = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan ForegroundLeaseDuration = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan[] BackoffSteps =
     [
         TimeSpan.FromSeconds(2),
         TimeSpan.FromSeconds(5),
-        TimeSpan.FromSeconds(10),
-        TimeSpan.FromSeconds(20),
+        TimeSpan.FromSeconds(15),
         TimeSpan.FromSeconds(30),
+        TimeSpan.FromSeconds(60),
+        TimeSpan.FromSeconds(120),
+        TimeSpan.FromSeconds(300),
     ];
 
     private readonly ConfigurationWorkspace _workspace;
@@ -55,6 +59,10 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(samplingInterval));
         }
     }
+
+    private TimeSpan BackgroundInterval => _samplingInterval > BackgroundSamplingInterval
+        ? _samplingInterval
+        : BackgroundSamplingInterval;
 
     internal void InvalidateConfiguration()
     {
@@ -136,10 +144,12 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
                 foreach (var definition in enabled)
                 {
                     var identity = MonitoringRemoteHostIdentity.For(definition);
+                    var normalizedProxy = RemoteHostDefinitionValidator.NormalizeProxyUri(definition.ProxyUri);
                     wanted.Add(definition.Id);
                     if (_workers.TryGetValue(definition.Id, out var existing))
                     {
-                        if (existing.HostIdentity == identity)
+                        if (existing.HostIdentity == identity
+                            && string.Equals(existing.NormalizedProxyUri, normalizedProxy, StringComparison.OrdinalIgnoreCase))
                         {
                             existing.UpdateDefinition(definition);
                             continue;
@@ -148,7 +158,7 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
                         toStop.Add(existing);
                     }
 
-                    var worker = new HostWorker(this, definition, identity, parentToken);
+                    var worker = new HostWorker(this, definition, identity, normalizedProxy, parentToken);
                     _workers[definition.Id] = worker;
                     worker.Start();
                 }
@@ -191,28 +201,24 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
 
         TaskCompletionSource<bool>? pending = null;
         var now = _clock.GetUtcNow();
+        worker.MarkForegroundActive(now.Add(ForegroundLeaseDuration));
         lock (worker.Sync)
         {
             if (worker.LatestOnlineSnapshot is { } fresh && IsFresh(fresh.CapturedAt, now))
             {
                 return fresh with { Name = definition.Name };
             }
-            if (!worker.HasCompletedFirstAttempt && worker.PendingSignal is { } activeSignal)
+            if ((!worker.HasCompletedFirstAttempt || worker.Connecting) && worker.PendingSignal is { } activeSignal)
             {
                 pending = activeSignal;
             }
-            else if (worker.Connecting && worker.PendingSignal is { } connectingSignal)
-            {
-                pending = connectingSignal;
-            }
-            else if (worker.LastAttemptCompletedAt is { } endedAt && now - endedAt >= TimeSpan.FromSeconds(2))
-            {
-                worker.Nudge();
-                return RemoteHostStatusSnapshot.Offline(definition, worker.LastError ?? "正在重新建立远程 SSH 流…");
-            }
             else
             {
-                return RemoteHostStatusSnapshot.Offline(definition, worker.LastError ?? "等待远程主机首次观测。");
+                return RemoteHostStatusSnapshot.Offline(
+                    definition,
+                    worker.LastError ?? (worker.HasCompletedFirstAttempt
+                        ? "正在重新建立远程 SSH 流…"
+                        : "等待远程主机首次观测。"));
             }
         }
 
@@ -295,6 +301,7 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
         {
             return ResourceHistoryProjection.ProjectRecent([], query, now);
         }
+        worker.MarkForegroundActive(now.Add(ForegroundLeaseDuration));
         return compatible ? worker.History.QueryCompatible(query, now) : worker.History.Query(query, now);
     }
 
@@ -305,6 +312,7 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
         {
             return ResourceHistoryProjection.ProjectRecentPrecise([], query, now, intervalMilliseconds, agentInstanceId);
         }
+        worker.MarkForegroundActive(now.Add(ForegroundLeaseDuration));
         return worker.History.QueryPrecise(query, now, intervalMilliseconds, agentInstanceId);
     }
 
@@ -323,9 +331,12 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
 
     private HostWorker? GetOrSyncWorker(RemoteHostDefinition definition, string identity)
     {
+        var normalizedProxy = RemoteHostDefinitionValidator.NormalizeProxyUri(definition.ProxyUri);
         lock (_gate)
         {
-            return _workers.TryGetValue(definition.Id, out var worker) && worker.HostIdentity == identity
+            return _workers.TryGetValue(definition.Id, out var worker)
+                && worker.HostIdentity == identity
+                && string.Equals(worker.NormalizedProxyUri, normalizedProxy, StringComparison.OrdinalIgnoreCase)
                 ? worker
                 : null;
         }
@@ -410,18 +421,27 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
     {
         private readonly AgentRemoteHostMonitor _owner;
         private readonly CancellationTokenSource _cts;
-        private readonly Channel<byte> _nudge = Channel.CreateBounded<byte>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
+        private DateTimeOffset? _foregroundUntilUtc;
+        private ChannelWriter<TimeSpan>? _activeRateWriter;
+        private TimeSpan _lastSentInterval;
 
-        internal HostWorker(AgentRemoteHostMonitor owner, RemoteHostDefinition definition, string identity, CancellationToken parentToken)
+        internal HostWorker(
+            AgentRemoteHostMonitor owner,
+            RemoteHostDefinition definition,
+            string identity,
+            string normalizedProxyUri,
+            CancellationToken parentToken)
         {
             _owner = owner;
             Definition = definition;
             HostIdentity = identity;
+            NormalizedProxyUri = normalizedProxyUri;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
         }
 
         internal object Sync { get; } = new();
         internal string HostIdentity { get; }
+        internal string NormalizedProxyUri { get; }
         internal RemoteHostDefinition Definition { get; private set; }
         internal ResourceHistoryBuffer History { get; } = new(maximumFrames: 601, maximumBytes: 4L * 1024 * 1024, maximumRows: 10);
         internal Task? LoopTask { get; private set; }
@@ -440,9 +460,65 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
             lock (Sync) { Definition = definition; }
         }
 
-        internal void Cancel() => _cts.Cancel();
+        internal void MarkForegroundActive(DateTimeOffset untilUtc)
+        {
+            lock (Sync)
+            {
+                if (_foregroundUntilUtc is null || untilUtc > _foregroundUntilUtc.Value)
+                {
+                    _foregroundUntilUtc = untilUtc;
+                }
+                PushDesiredIntervalLocked(_owner._samplingInterval);
+            }
+        }
 
-        internal void Nudge() => _nudge.Writer.TryWrite(1);
+        internal void SyncDesiredSamplingInterval(DateTimeOffset now)
+        {
+            lock (Sync)
+            {
+                var desired = _foregroundUntilUtc is { } until && now < until
+                    ? _owner._samplingInterval
+                    : _owner.BackgroundInterval;
+                PushDesiredIntervalLocked(desired);
+            }
+        }
+
+        private void PushDesiredIntervalLocked(TimeSpan desired)
+        {
+            if (_activeRateWriter is not null && desired != _lastSentInterval)
+            {
+                _lastSentInterval = desired;
+                _activeRateWriter.TryWrite(desired);
+            }
+        }
+
+        private TimeSpan AttachRateChannel(Channel<TimeSpan> channel)
+        {
+            lock (Sync)
+            {
+                var now = _owner._clock.GetUtcNow();
+                var initial = _foregroundUntilUtc is { } until && now < until
+                    ? _owner._samplingInterval
+                    : _owner.BackgroundInterval;
+                _activeRateWriter = channel.Writer;
+                _lastSentInterval = initial;
+                return initial;
+            }
+        }
+
+        private void DetachRateChannel(ChannelWriter<TimeSpan> writer)
+        {
+            lock (Sync)
+            {
+                if (ReferenceEquals(_activeRateWriter, writer))
+                {
+                    _activeRateWriter = null;
+                }
+            }
+            writer.TryComplete();
+        }
+
+        internal void Cancel() => _cts.Cancel();
 
         private async Task RunLoopAsync(CancellationToken token)
         {
@@ -463,12 +539,21 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
 
                 DateTimeOffset? connectedAt = null;
                 var receivedSample = false;
+                var rateChannel = Channel.CreateBounded<TimeSpan>(new BoundedChannelOptions(1)
+                {
+                    FullMode = BoundedChannelFullMode.DropOldest,
+                    SingleReader = true,
+                });
+                var initialInterval = AttachRateChannel(rateChannel);
                 try
                 {
-                    var stream = _owner._source.StreamAsync(current, _owner._samplingInterval, token);
+                    var stream = _owner._source is IRemoteHostAdaptiveStreamSource adaptive
+                        ? adaptive.StreamAdaptiveAsync(current, initialInterval, rateChannel.Reader.ReadAllAsync(token), token)
+                        : _owner._source.StreamAsync(current, initialInterval, token);
                     await foreach (var sample in stream.WithCancellation(token).ConfigureAwait(false))
                     {
                         var now = _owner._clock.GetUtcNow();
+                        SyncDesiredSamplingInterval(now);
                         var at = sample.CapturedAt > now && sample.CapturedAt <= now.AddMilliseconds(500)
                             ? now
                             : sample.CapturedAt;
@@ -479,7 +564,7 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
                             receivedSample = true;
                             connectedAt = now;
                         }
-                        if (connectedAt is { } since && now - since >= TimeSpan.FromSeconds(30))
+                        if (connectedAt is { } since && now - since >= TimeSpan.FromSeconds(60))
                         {
                             backoffIndex = 0;
                         }
@@ -511,22 +596,35 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
                 }
                 finally
                 {
+                    DetachRateChannel(rateChannel.Writer);
                     signal.TrySetResult(false);
                 }
 
                 if (token.IsCancellationRequested) { break; }
 
-                var delay = receivedSample ? TimeSpan.FromSeconds(1) : BackoffSteps[Math.Min(backoffIndex, BackoffSteps.Length - 1)];
-                if (!receivedSample && backoffIndex < BackoffSteps.Length - 1) { backoffIndex++; }
-                if (receivedSample && connectedAt is { } okSince && _owner._clock.GetUtcNow() - okSince >= TimeSpan.FromSeconds(30))
-                { backoffIndex = 0; }
+                var stableConnection = receivedSample
+                    && connectedAt is { } okSince
+                    && _owner._clock.GetUtcNow() - okSince >= TimeSpan.FromSeconds(60);
+                TimeSpan delay;
+                if (stableConnection)
+                {
+                    backoffIndex = 0;
+                    delay = BackoffSteps[0];
+                }
+                else
+                {
+                    delay = BackoffSteps[Math.Min(backoffIndex, BackoffSteps.Length - 1)];
+                    if (backoffIndex < BackoffSteps.Length - 1) { backoffIndex++; }
+                }
+                if (ReferenceEquals(_owner._clock, TimeProvider.System))
+                {
+                    var jitterMultiplier = 1.0 + Random.Shared.NextDouble() * 0.25;
+                    delay = TimeSpan.FromMilliseconds(Math.Round(delay.TotalMilliseconds * jitterMultiplier));
+                }
 
                 try
                 {
-                    var delayTask = Task.Delay(delay, _owner._clock, token);
-                    var nudgeTask = _nudge.Reader.ReadAsync(token).AsTask();
-                    _ = await Task.WhenAny(delayTask, nudgeTask).ConfigureAwait(false);
-                    if (nudgeTask.IsCompleted) { while (_nudge.Reader.TryRead(out _)) { } }
+                    await Task.Delay(delay, _owner._clock, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
             }

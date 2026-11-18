@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using SystemAutorun.App.Dialogs;
 using SystemAutorun.App.Services;
 using SystemAutorun.Core.Ipc;
@@ -43,9 +44,10 @@ public sealed class RemoteHostsWindowTests
                     Id = "home-storage", Name = "禁用测试节点", Enabled = false, Platform = RemoteHostPlatform.Linux,
                     Host = "192.0.2.10", UserName = "fixture", Authentication = RemoteAuthenticationMode.SshAgent,
                     KnownHostsFile = knownHosts, ConnectTimeoutSeconds = 5, CommandTimeoutSeconds = 10,
+                    ProxyUri = "socks5://127.0.0.1:10808",
                 };
 
-                // 1. Edit mode pre-fills the target definition and preserves its Id.
+                // 1. Edit mode pre-fills the target definition (including ProxyUri) and preserves its Id.
                 var editAttempts = new List<RemoteHostDefinition[]>();
                 var editWindow = new RemoteHostsWindow([definition], hosts =>
                 {
@@ -67,11 +69,14 @@ public sealed class RemoteHostsWindowTests
                     Assert.Equal(definition.Name, editWindow.NameTextBox.Text);
                     Assert.Equal(definition.Host, editWindow.HostTextBox.Text);
                     Assert.Equal(definition.UserName, editWindow.UserNameTextBox.Text);
+                    Assert.Equal("socks5://127.0.0.1:10808", editWindow.ProxyUriTextBox.Text);
                     editWindow.NameTextBox.Text = "已重命名节点";
+                    editWindow.ProxyUriTextBox.Text = "   ";
                     await editWindow.SaveDraftAsync();
                     var savedEdit = Assert.Single(Assert.Single(editAttempts));
                     Assert.Equal(definition.Id, savedEdit.Id);
                     Assert.Equal("已重命名节点", savedEdit.Name);
+                    Assert.Null(savedEdit.ProxyUri);
                 }
                 finally { editWindow.Close(); }
 
@@ -103,12 +108,16 @@ public sealed class RemoteHostsWindowTests
 
                     // Approved G2-state-r2: existing borders change color, never width; no focus adorners.
                     Assert.Equal(new Thickness(0, 0, 0, 1), window.NameTextBox.BorderThickness);
+                    Assert.Equal(new Thickness(0, 0, 0, 1), window.ProxyUriTextBox.BorderThickness);
                     Assert.Equal(new Thickness(0, 0, 0, 1), window.PlatformComboBox.BorderThickness);
                     Assert.Null(window.NameTextBox.FocusVisualStyle);
+                    Assert.Null(window.ProxyUriTextBox.FocusVisualStyle);
                     Assert.Null(window.PlatformComboBox.FocusVisualStyle);
                     Assert.Equal(ColorFocusRole.Border, ColorStateAssist.GetRole(window.NameTextBox));
+                    Assert.Equal(ColorFocusRole.Border, ColorStateAssist.GetRole(window.ProxyUriTextBox));
                     Assert.Equal(ColorFocusRole.Border, ColorStateAssist.GetRole(window.PlatformComboBox));
                     Assert.Equal(Visibility.Collapsed, MaterialDesignThemes.Wpf.TextFieldAssist.GetDecorationVisibility(window.NameTextBox));
+                    Assert.Equal(Visibility.Collapsed, MaterialDesignThemes.Wpf.TextFieldAssist.GetDecorationVisibility(window.ProxyUriTextBox));
                     Assert.Equal(Visibility.Collapsed, MaterialDesignThemes.Wpf.TextFieldAssist.GetDecorationVisibility(window.PlatformComboBox));
                     var choice = new ComboBoxItem { Style = window.PlatformComboBox.ItemContainerStyle };
                     Assert.Null(choice.FocusVisualStyle);
@@ -125,6 +134,9 @@ public sealed class RemoteHostsWindowTests
                     window.UserNameTextBox.Text = "fixture";
                     window.KnownHostsFileTextBox.Text = knownHosts;
                     window.EnabledCheckBox.IsChecked = false;
+                    window.ProxyUriTextBox.Text = "ftp://127.0.0.1:21";
+                    await Assert.ThrowsAsync<ArgumentException>(() => window.SaveDraftAsync());
+                    window.ProxyUriTextBox.Text = "socks5://127.0.0.1:10808";
                     var first = window.SaveDraftAsync();
                     Assert.False(window.IsEnabled);
                     await Assert.ThrowsAsync<InvalidOperationException>(() => window.SaveDraftAsync());
@@ -143,6 +155,7 @@ public sealed class RemoteHostsWindowTests
                     pending.SetResult();
                     await second;
                     Assert.Equal(2, window.RemoteHosts.Count);
+                    Assert.Equal("socks5://127.0.0.1:10808", window.RemoteHosts.Single(host => host.Id == newId).ProxyUri);
                     Assert.Equal(newId, window.SavedHostId);
                     Assert.True(window.IsEnabled);
                 }
@@ -158,6 +171,93 @@ public sealed class RemoteHostsWindowTests
                 throw new InvalidOperationException("Refusing to delete a non-owned remote window fixture.");
             }
             Directory.Delete(resolved, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemoteHostsWindowRendersProxyFieldCleanlyInBothThemes(bool light)
+    {
+        var root = Directory.CreateTempSubdirectory("SystemAutorun-remote-window-vis-").FullName;
+        try
+        {
+            var knownHosts = Path.Combine(root, "known_hosts");
+            await File.WriteAllTextAsync(knownHosts, "# fixture\n");
+            await GuiConfigurationControlTests.RunStaAsync(async () =>
+            {
+                var application = Application.Current as SystemAutorun.App.App;
+                if (application is null)
+                {
+                    application = new SystemAutorun.App.App(runRuntimeStartup: false);
+                    application.InitializeComponent();
+                }
+                WindowTheme.Install();
+                var previousTheme = ThemeService.IsLight ? ThemePreference.Light : ThemePreference.Dark;
+                ThemeService.Apply(light ? ThemePreference.Light : ThemePreference.Dark, persist: null);
+
+                var definition = new RemoteHostDefinition
+                {
+                    Id = "oracle-arm", Name = "Oracle ARM 圣何塞", Enabled = true, Platform = RemoteHostPlatform.Linux,
+                    Host = "vps.3efs.com", UserName = "ubuntu", Authentication = RemoteAuthenticationMode.SshAgent,
+                    KnownHostsFile = knownHosts, ConnectTimeoutSeconds = 10, CommandTimeoutSeconds = 20,
+                    ProxyUri = "socks5://127.0.0.1:10808",
+                };
+                var window = new RemoteHostsWindow([definition], _ => Task.CompletedTask, editing: definition)
+                {
+                    ShowActivated = false,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = -32000,
+                    Top = -32000,
+                };
+                ColorStateAssist.SetReduceMotion(window, true);
+                try
+                {
+                    window.Show();
+                    await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    window.UpdateLayout();
+
+                    Assert.True(window.ProxyUriTextBox.IsVisible);
+                    Assert.True(window.ProxyUriTextBox.ActualHeight >= 20);
+                    Assert.True(window.ActualHeight <= 640);
+
+                    var evidenceDir = Environment.GetEnvironmentVariable("SA_REMOTE_PROXY_EVIDENCE");
+                    if (!string.IsNullOrWhiteSpace(evidenceDir))
+                    {
+                        Directory.CreateDirectory(evidenceDir);
+                        var content = (FrameworkElement)window.Content;
+                        content.UpdateLayout();
+                        var dpi = VisualTreeHelper.GetDpi(content);
+                        var width = Math.Max(1, (int)Math.Ceiling(content.ActualWidth * dpi.DpiScaleX));
+                        var height = Math.Max(1, (int)Math.Ceiling(content.ActualHeight * dpi.DpiScaleY));
+                        var bitmap = new RenderTargetBitmap(width, height, 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, PixelFormats.Pbgra32);
+                        var visual = new DrawingVisual();
+                        using (var dc = visual.RenderOpen())
+                        {
+                            dc.DrawRectangle(
+                                new VisualBrush(content) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top },
+                                null,
+                                new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                        }
+                        bitmap.Render(visual);
+                        var encoder = new PngBitmapEncoder();
+                        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                        await using var stream = File.Create(Path.Combine(evidenceDir, $"remote-hosts-{(light ? "light" : "dark")}.png"));
+                        encoder.Save(stream);
+                    }
+                }
+                finally
+                {
+                    window.Close();
+                    ThemeService.Apply(previousTheme, persist: null);
+                    await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                }
+            });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 }

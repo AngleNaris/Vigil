@@ -21,12 +21,15 @@ internal static class NativeMethods
 
     internal readonly record struct NativeProcessMetric(
         int ProcessId,
+        int ParentProcessId,
         string ProcessName,
         long CreateFileTimeUtc,
         long TotalProcessorTimeTicks,
         long WorkingSetBytes,
         long PrivateBytes,
-        int ThreadCount);
+        int ThreadCount,
+        long DiskReadBytes,
+        long DiskWriteBytes);
 
     [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -166,8 +169,10 @@ internal static class NativeMethods
                 // 0: NextEntryOffset (u32), 4: NumberOfThreads (u32), 32: CreateTime (i64),
                 // 40: UserTime (i64), 48: KernelTime (i64), 56: ImageName.Length (u16),
                 // 64: ImageName.Buffer (ptr), 80: UniqueProcessId (ptr),
-                // 144: WorkingSetSize (usize), 184: PagefileUsage (usize)
-                while (offset + 192 <= span.Length)
+                // 88: InheritedFromUniqueProcessId (ptr), 144: WorkingSetSize (usize),
+                // 184: PagefileUsage (usize), 232: ReadTransferCount (i64), 240: WriteTransferCount (i64)
+                const int minimumEntrySize = 256;
+                while (offset + minimumEntrySize <= span.Length)
                 {
                     var entry = span.Slice(offset);
                     var nextOffset = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(0, 4));
@@ -178,8 +183,11 @@ internal static class NativeMethods
                     var imageLength = BinaryPrimitives.ReadUInt16LittleEndian(entry.Slice(56, 2));
                     var imagePtr = BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(64, 8));
                     var pid64 = BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(80, 8));
+                    var parentPid64 = BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(88, 8));
                     var workingSet = BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(144, 8));
                     var privateBytes = BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(184, 8));
+                    var diskReadBytes = Math.Max(0L, BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(232, 8)));
+                    var diskWriteBytes = Math.Max(0L, BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(240, 8)));
 
                     if (pid64 >= 0 && pid64 <= int.MaxValue)
                     {
@@ -203,21 +211,25 @@ internal static class NativeMethods
                         }
 
                         var pid = (int)pid64;
+                        var parentPid = parentPid64 is > 0 and <= int.MaxValue ? (int)parentPid64 : 0;
                         result[pid] = new NativeProcessMetric(
                             pid,
+                            parentPid,
                             processName,
                             createTime,
                             userTime + kernelTime,
                             workingSet,
                             privateBytes,
-                            checked((int)threads));
+                            checked((int)threads),
+                            diskReadBytes,
+                            diskWriteBytes);
                     }
 
                     if (nextOffset == 0)
                     {
                         break;
                     }
-                    if (nextOffset < 192 || offset + (long)nextOffset > span.Length)
+                    if (nextOffset < minimumEntrySize || offset + (long)nextOffset > span.Length)
                     {
                         break;
                     }
