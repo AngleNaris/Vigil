@@ -1,5 +1,14 @@
 # Verification
 
+## 2026-11-18 — 新增不含 .NET 运行时的轻量安装程序构建选项（`-FrameworkDependent`）与双安装包发布
+
+- **构建脚本支持**：
+  - 在 [publish-native.ps1](<scripts/publish-native.ps1>) 新增 `-FrameworkDependent` 开关参数：启用时通过 `--self-contained false` / `-p:SelfContained=false` / `-p:PublishReadyToRun=false` 输出到独立目录 `artifacts\publish\win-x64-fd`（含 35 个应用/WinRT 文件，跳过 `coreclr.dll`/`hostfxr.dll`/`hostpolicy.dll`/`System.Private.CoreLib.dll` 打包与校验），并验证各组件 `.runtimeconfig.json` 正确引用共享框架且将 `publish-manifest.json` 的 `self_contained` 标记为 `false`。
+  - 在 [build-installer.ps1](<scripts/build-installer.ps1>) 新增 `-FrameworkDependent` 开关参数：以 `--self-contained false` 发布单文件安装器壳，组装生成不含 .NET 运行时的 `artifacts\installer\Vigil-Setup-1.0.0-win-x64-fd.exe`（`51,460,345` 字节 / `49.08 MB`，较自包含版 `256.64 MB` 缩减约 81%），SHA-256 为 `6fcaa57f88778eb4243e498a107e48508ae537a5f3877b9a5c7c0c05eef7c1b9`。
+- **实测验证**：
+  - 使用 `--sandbox-registry --silent --install-dir ... --data-dir ... --no-shortcuts --no-path --no-env --no-startup` 在临时沙盒完成 `Vigil-Setup-1.0.0-win-x64-fd.exe` 安装（`InstallExit=0`）、运行安装后的 `cli\vigil.exe --version --json`（输出 `1.0.0.0`），并执行 `Vigil-Uninstall.exe --uninstall --sandbox-registry --silent` 完成自卸载（`UninstallExit=0`、`RemainingAppExists=False`）后清理临时目录。
+  - 注：运行 `pwsh -File tests\PublishContract.Tests.ps1` 时，前序既有的 `activation-failure` 项因 `publish-native.ps1` 在目标存在时走 `Sync-SafeDirectoryInPlace` 而非 `Move-Item` 仍报错（其余合成模式校验均通过），未做无关改动。
+
 ## 2026-11-18 — 服务页监控图表 2×2 双列网格排版与后台回前台远程主机误报离线修复
 
 - **用户需求与改动范围**：

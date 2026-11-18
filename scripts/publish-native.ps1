@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string] $OutputDirectory,
+    [switch] $FrameworkDependent,
     [switch] $NoRestore
 )
 
@@ -216,13 +217,16 @@ function Sync-SafeDirectoryInPlace {
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $artifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'artifacts'))
+$selfContained = -not $FrameworkDependent
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $artifactsRoot 'publish\win-x64'
+    $publishLeaf = if ($selfContained) { 'publish\win-x64' } else { 'publish\win-x64-fd' }
+    $OutputDirectory = Join-Path $artifactsRoot $publishLeaf
 }
 
 $outputPath = Assert-PathInsideDirectory -Path $OutputDirectory -Directory $artifactsRoot `
     -Description 'OutputDirectory'
-$previousPath = Assert-PathInsideDirectory -Path (Join-Path $artifactsRoot 'rollback\win-x64.previous') -Directory $artifactsRoot `
+$previousLeaf = if ($selfContained) { 'rollback\win-x64.previous' } else { 'rollback\win-x64-fd.previous' }
+$previousPath = Assert-PathInsideDirectory -Path (Join-Path $artifactsRoot $previousLeaf) -Directory $artifactsRoot `
     -Description 'Previous release directory'
 $stagingParent = Join-Path $artifactsRoot '.staging'
 $stagingPath = Join-Path $stagingParent ([guid]::NewGuid().ToString('N'))
@@ -263,14 +267,16 @@ try {
     foreach ($project in $projects) {
         $componentPath = Join-Path $stagingPath (Join-Path 'components' $project.Name)
         New-Item -ItemType Directory -Path $componentPath | Out-Null
-        $readyToRun = if ($project.Name -in @('App', 'Cli')) { 'true' } else { 'false' }
+        $readyToRun = if ($selfContained -and $project.Name -in @('App', 'Cli')) { 'true' } else { 'false' }
+        $selfContainedArg = if ($selfContained) { 'true' } else { 'false' }
         $arguments = @(
             'publish',
             (Join-Path $projectRoot $project.Path),
             '--configuration', 'Release',
             '--runtime', 'win-x64',
-            '--self-contained', 'true',
+            '--self-contained', $selfContainedArg,
             '--output', $componentPath,
+            "-p:SelfContained=$selfContainedArg",
             "-p:PublishReadyToRun=$readyToRun",
             '-p:PublishTrimmed=false',
             '-p:DebugType=None',
@@ -310,29 +316,33 @@ try {
         'cli\vigil.deps.json',
         'cli\vigil.runtimeconfig.json',
         'cli\SystemAutorun.Core.dll',
-        'cli\coreclr.dll',
-        'cli\hostfxr.dll',
-        'cli\hostpolicy.dll',
-        'cli\System.Private.CoreLib.dll',
-        'coreclr.dll',
-        'hostfxr.dll',
-        'hostpolicy.dll',
-        'System.Private.CoreLib.dll',
         'runtime\Vigil.Agent.exe',
         'runtime\Vigil.Agent.dll',
         'runtime\Vigil.Agent.deps.json',
         'runtime\Vigil.Elevated.exe',
         'runtime\Vigil.Elevated.dll',
         'runtime\Vigil.Elevated.deps.json',
-        'runtime\coreclr.dll',
-        'runtime\hostfxr.dll',
-        'runtime\hostpolicy.dll',
-        'runtime\System.Private.CoreLib.dll',
         'runtime\SystemAutorun.Core.dll',
         'runtime\SystemAutorun.Windows.dll',
         'runtime\Vigil.Agent.runtimeconfig.json',
         'runtime\Vigil.Elevated.runtimeconfig.json'
     )
+    if ($selfContained) {
+        $requiredFiles += @(
+            'cli\coreclr.dll',
+            'cli\hostfxr.dll',
+            'cli\hostpolicy.dll',
+            'cli\System.Private.CoreLib.dll',
+            'coreclr.dll',
+            'hostfxr.dll',
+            'hostpolicy.dll',
+            'System.Private.CoreLib.dll',
+            'runtime\coreclr.dll',
+            'runtime\hostfxr.dll',
+            'runtime\hostpolicy.dll',
+            'runtime\System.Private.CoreLib.dll'
+        )
+    }
     foreach ($requiredFile in $requiredFiles) {
         $path = Join-Path $packagePath $requiredFile
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -350,9 +360,19 @@ try {
         Assert-WindowsExecutable -Path (Join-Path $packagePath $entry.Path) -ExpectedSubsystem $entry.Subsystem
         $configPath = [System.IO.Path]::ChangeExtension((Join-Path $packagePath $entry.Path), '.runtimeconfig.json')
         $options = ([System.IO.File]::ReadAllText($configPath) | ConvertFrom-Json).runtimeOptions
-        if ($null -eq $options -or $null -ne $options.framework -or $null -ne $options.frameworks `
-            -or 'Microsoft.NETCore.App' -notin @($options.includedFrameworks.name)) {
-            throw "Entry point must use its bundled self-contained runtime: $($entry.Path)"
+        if ($selfContained) {
+            if ($null -eq $options -or $null -ne $options.framework -or $null -ne $options.frameworks `
+                -or 'Microsoft.NETCore.App' -notin @($options.includedFrameworks.name)) {
+                throw "Entry point must use its bundled self-contained runtime: $($entry.Path)"
+            }
+        }
+        else {
+            $frameworkNames = @()
+            if ($null -ne $options.framework) { $frameworkNames += $options.framework.name }
+            if ($null -ne $options.frameworks) { $frameworkNames += @($options.frameworks.name) }
+            if ($null -eq $options -or $null -ne $options.includedFrameworks -or 'Microsoft.NETCore.App' -notin $frameworkNames) {
+                throw "Entry point must use a framework-dependent runtime: $($entry.Path)"
+            }
         }
     }
 
@@ -367,7 +387,7 @@ try {
     $manifest = [ordered]@{
         schema_version = 1
         runtime = 'win-x64'
-        self_contained = $true
+        self_contained = $selfContained
         created_utc = [DateTimeOffset]::UtcNow.ToString('O')
         files = @($manifestFiles)
     }

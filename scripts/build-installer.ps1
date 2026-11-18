@@ -2,6 +2,7 @@
 param(
     [string] $PublishDirectory,
     [string] $OutputDirectory,
+    [switch] $FrameworkDependent,
     [switch] $SkipAppPublish,
     [switch] $NoRestore
 )
@@ -10,9 +11,11 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
+$selfContained = -not $FrameworkDependent
 
 if ([string]::IsNullOrWhiteSpace($PublishDirectory)) {
-    $PublishDirectory = Join-Path $artifactsRoot 'publish\win-x64'
+    $publishLeaf = if ($selfContained) { 'publish\win-x64' } else { 'publish\win-x64-fd' }
+    $PublishDirectory = Join-Path $artifactsRoot $publishLeaf
 }
 else {
     $PublishDirectory = [System.IO.Path]::GetFullPath($PublishDirectory)
@@ -28,6 +31,9 @@ else {
 if (-not $SkipAppPublish) {
     $publishScript = Join-Path $PSScriptRoot 'publish-native.ps1'
     $pubArgs = @{ OutputDirectory = $PublishDirectory }
+    if ($FrameworkDependent) {
+        $pubArgs['FrameworkDependent'] = $true
+    }
     if ($NoRestore) {
         $pubArgs['NoRestore'] = $true
     }
@@ -42,25 +48,31 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Published package manifest not found: $manifestPath"
 }
 
+$versionedName = if ($selfContained) { 'Vigil-Setup-1.0.0-win-x64.exe' } else { 'Vigil-Setup-1.0.0-win-x64-fd.exe' }
+$latestName = if ($selfContained) { 'Vigil-Setup.exe' } else { 'Vigil-Setup-fd.exe' }
+
 $stagingDir = Join-Path $artifactsRoot ('.installer-staging\' + [guid]::NewGuid().ToString('N'))
 $installerBuildDir = Join-Path $stagingDir 'bin'
 $payloadZip = Join-Path $stagingDir 'payload.zip'
-$assembledExe = Join-Path $stagingDir 'Vigil-Setup-1.0.0-win-x64.exe'
+$assembledExe = Join-Path $stagingDir $versionedName
 
 try {
     New-Item -ItemType Directory -Path $installerBuildDir -Force | Out-Null
 
     $installerProj = Join-Path $projectRoot 'src\SystemAutorun.Installer\SystemAutorun.Installer.csproj'
+    $selfContainedArg = if ($selfContained) { 'true' } else { 'false' }
+    $compressionArg = if ($selfContained) { 'true' } else { 'false' }
     $dotnetArgs = @(
         'publish',
         $installerProj,
         '--configuration', 'Release',
         '--runtime', 'win-x64',
-        '--self-contained', 'true',
+        '--self-contained', $selfContainedArg,
         '--output', $installerBuildDir,
+        "-p:SelfContained=$selfContainedArg",
         '-p:PublishSingleFile=true',
-        '-p:IncludeNativeLibrariesForSelfExtract=true',
-        '-p:EnableCompressionInSingleFile=true',
+        "-p:IncludeNativeLibrariesForSelfExtract=$compressionArg",
+        "-p:EnableCompressionInSingleFile=$compressionArg",
         '-p:DebugType=None',
         '-p:DebugSymbols=false'
     )
@@ -122,8 +134,8 @@ try {
     }
 
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-    $versionedTarget = Join-Path $OutputDirectory 'Vigil-Setup-1.0.0-win-x64.exe'
-    $latestTarget = Join-Path $OutputDirectory 'Vigil-Setup.exe'
+    $versionedTarget = Join-Path $OutputDirectory $versionedName
+    $latestTarget = Join-Path $OutputDirectory $latestName
     Copy-Item -LiteralPath $assembledExe -Destination $versionedTarget -Force
     Copy-Item -LiteralPath $assembledExe -Destination $latestTarget -Force
 
