@@ -26,7 +26,11 @@
 </p>
 
 <p align="center">
-  <img src="./docs/screenshot.png" width="920" alt="Vigil 控制台界面">
+  <img src="./docs/screenshot.png" width="920" alt="Vigil 服务监控控制台界面">
+</p>
+
+<p align="center">
+  <img src="./docs/screenshot-hosts.png" width="920" alt="Vigil 主机与远程节点监控界面">
 </p>
 
 ---
@@ -54,7 +58,7 @@ Vigil 是一个面向 Windows 家庭服务器与常驻桌面环境的原生控�
 
 Vigil 主窗口收束为顶栏三个平级工作视图与按需弹出的独立工具窗口：
 
-1. **服务（Workloads）**：左侧列出全部纳管工作负载、状态过滤、关键词检索及持续高资源占用提醒；右侧展示可用率时间轴、运行时长、CPU / 工作集内存曲线，并可直接启动、停止、重启、查看详情与切换统计窗口。
+1. **服务（Workloads）**：左侧列出全部纳管工作负载、状态过滤、关键词检索及持续高资源占用提醒；右侧展示可用率时间轴、运行时长、CPU / 内存 / 磁盘IO / 网络 2×2 四联趋势图，并可直接启动、停止、重启、查看详情与切换统计窗口。
 2. **主机（Hosts）**：集中观测本机 CPU、内存、固定磁盘与 IPv4 接口吞吐四联图，并支持通过顶部主机 Tab 只读切换已配置的远程 Windows / Linux（OpenSSH）主机资源概况。
 3. **异常日志（Exceptions）**：按「总条数 / 严重 / 错误 / 警告」四段计数栏快速过滤近期异常条目、定位来源并导出诊断快照。
 
