@@ -77,12 +77,16 @@ public sealed record ResourceAlertSettings
     public const double DefaultProcessMemoryPercent = 25.0;
     public const int DefaultProcessMemoryMb = 2048;
     public const int DefaultCpuSustainSeconds = 60;
+    public const int DefaultNotificationCooldownMinutes = 10;
 
     [JsonPropertyName("enabled")]
     public bool Enabled { get; init; } = true;
 
     [JsonPropertyName("cpu_sustain_seconds")]
     public int CpuSustainSeconds { get; init; } = DefaultCpuSustainSeconds;
+
+    [JsonPropertyName("notification_cooldown_minutes")]
+    public int NotificationCooldownMinutes { get; init; } = DefaultNotificationCooldownMinutes;
 
     [JsonPropertyName("host_cpu_percent")]
     public double HostCpuPercent { get; init; } = DefaultHostCpuPercent;
@@ -213,6 +217,7 @@ public static class ResourceAlertSettingsValidator
         ValidatePercent(settings.ProcessCpuPercent, "alert_settings.process_cpu_percent");
         ValidatePercent(settings.ProcessMemoryPercent, "alert_settings.process_memory_percent");
         ValidateSustainSeconds(settings.CpuSustainSeconds, "alert_settings.cpu_sustain_seconds");
+        ValidateNotificationCooldownMinutes(settings.NotificationCooldownMinutes, "alert_settings.notification_cooldown_minutes");
         ValidateMemoryMb(settings.ProcessMemoryMb, "alert_settings.process_memory_mb");
 
         if (settings.HostOverrides is not null)
@@ -275,6 +280,14 @@ public static class ResourceAlertSettingsValidator
         if (double.IsNaN(value) || double.IsInfinity(value) || value < 1 || value > 100)
         {
             throw new ArgumentException($"{field} must be between 1 and 100.");
+        }
+    }
+
+    private static void ValidateNotificationCooldownMinutes(int value, string field)
+    {
+        if (value < 0 || value > 1440)
+        {
+            throw new ArgumentException($"{field} must be between 0 and 1440.");
         }
     }
 

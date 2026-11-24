@@ -801,6 +801,119 @@ public sealed class RemoteHostStreamingAndUiTests
         }
     }
 
+    [Fact]
+    public async Task HiddenBackgroundWindowPollsAndEmitsRemoteOfflineAlertWithoutForegroundActivation()
+    {
+        var streamSource = new ControlledStreamSource();
+        MonitoringHistoryStore? history = null;
+        await using var fixture = new ConfigurationControlPlaneTests.ServerFixture(
+            remoteMonitorFactory: (workspace, instance) => new AgentRemoteHostMonitor(workspace, streamSource, instance),
+            pairedMonitorFactory: (workspace, instance, remote) =>
+            {
+                history = new MonitoringHistoryStore(workspace.Paths);
+                return new AgentMonitor(workspace, new EmptyLocalSource(), instance, history,
+                    interval: TimeSpan.FromMilliseconds(500), healthInterval: TimeSpan.FromSeconds(10), remoteMonitor: remote);
+            });
+
+        try
+        {
+            var arm = LinuxDef(fixture.Root, "arm-bg", "10.18.245.127") with { Name = "Oracle ARM" };
+            var configClient = new AgentConfigurationClient(fixture.Client);
+            _ = await configClient.ReadAsync();
+            _ = await configClient.MutateAsync<ApplicationSettings>("settings-set",
+                payload: new ApplicationSettings { RemoteHosts = [arm] });
+
+            using var loopCts = new CancellationTokenSource();
+            var remoteLoop = fixture.RemoteMonitor!.RunAsync(loopCts.Token);
+            try
+            {
+                var session1 = await streamSource.WaitSessionAsync("arm-bg", 1);
+                await session1.PushAsync(LinuxSample(arm, DateTimeOffset.UtcNow, 15, 2048));
+                await fixture.Monitor!.SampleOnceAsync();
+
+                await GuiConfigurationControlTests.RunStaAsync(async () =>
+                {
+                    if (Application.Current is not SystemAutorun.App.App)
+                    {
+                        var app = new SystemAutorun.App.App(runRuntimeStartup: false);
+                        app.InitializeComponent();
+                    }
+
+                    var cursor = new AgentConfigurationClient(fixture.Client);
+                    var model = new MainWindowViewModel(
+                        fixture.Client,
+                        new NativeCacheStore(fixture.Paths.GuiCachePath),
+                        cursor,
+                        fixture.Paths,
+                        new AgentRemoteHostReader(fixture.Client, cursor),
+                        new DashboardMonitoringClient(fixture.Client))
+                    {
+                        AutoRefresh = true,
+                    };
+                    var alerts = new List<string>();
+                    model.AlertRequested += (_, message) => alerts.Add(message);
+
+                    var main = new SystemAutorun.App.MainWindow(
+                        model,
+                        new AgentStartupClient(fixture.Client),
+                        new StartupCacheStore(fixture.Paths.StartupCachePath))
+                    {
+                        Width = 1152,
+                        Height = 648,
+                        ShowActivated = false,
+                        ShowInTaskbar = false,
+                        WindowStartupLocation = WindowStartupLocation.Manual,
+                        Left = -32000,
+                        Top = -32000,
+                        BackgroundAlertInterval = TimeSpan.FromMilliseconds(150),
+                    };
+                    ColorStateAssist.SetReduceMotion(main, true);
+
+                    try
+                    {
+                        await model.InitializeAsync();
+                        Assert.False(main.IsVisible);
+                        Assert.False(model.IsPresentationActive);
+                        Assert.Empty(alerts);
+
+                        // Drop the SSH stream while the window remains completely hidden in background.
+                        session1.Fail(new InvalidOperationException("ssh connection timed out"));
+                        await WaitUntilAsync(() => fixture.RemoteMonitor.GetFreshSnapshots(DateTimeOffset.UtcNow)
+                            .Any(item => item.Id == "arm-bg" && !item.Online));
+
+                        // Background alert timer must poll and raise the tray alert without ever showing the window.
+                        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+                        while (DateTimeOffset.UtcNow < deadline && alerts.Count == 0)
+                        {
+                            await Task.Delay(100);
+                            await Dispatcher.Yield(DispatcherPriority.Background);
+                        }
+
+                        Assert.False(main.IsVisible);
+                        Assert.Contains(alerts, message => message.Contains("Oracle ARM") && message.Contains("ssh connection timed out"));
+                    }
+                    finally
+                    {
+                        model.DetachDashboard();
+                        var closing = typeof(SystemAutorun.App.MainWindow).GetMethod("Window_Closing", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                        main.Closing -= (System.ComponentModel.CancelEventHandler)closing.CreateDelegate(typeof(System.ComponentModel.CancelEventHandler), main);
+                        main.Close();
+                        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                    }
+                }, TimeSpan.FromSeconds(30));
+            }
+            finally
+            {
+                loopCts.Cancel();
+                try { await remoteLoop; } catch (OperationCanceledException) { }
+            }
+        }
+        finally
+        {
+            history?.Dispose();
+        }
+    }
+
     private static RemoteHostDefinition LinuxDef(string root, string id, string host) => new()
     {
         Id = id,

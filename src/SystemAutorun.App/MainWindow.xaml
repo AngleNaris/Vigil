@@ -76,6 +76,8 @@
                                 shell:WindowChrome.IsHitTestVisibleInChrome="True" AutomationProperties.Name="视图">
                         <Button x:Name="ServicesTab" Content="服务" Style="{StaticResource DashboardTabButton}" Click="ServicesTab_Click"
                                 Tag="{Binding IsWorkloadsPage}" ToolTip="服务 (Ctrl+2)" AutomationProperties.Name="服务" />
+                        <Button x:Name="AutomationTab" Content="自动化" Style="{StaticResource DashboardTabButton}" Click="AutomationTab_Click"
+                                Tag="{Binding IsAutomationPage}" ToolTip="自动化与定时重启" AutomationProperties.Name="自动化" />
                         <Button x:Name="HostsTab" Content="主机" Style="{StaticResource DashboardTabButton}" Click="Hosts_Click"
                                 Tag="{Binding IsOverviewPage}" ToolTip="主机资源与远程主机 (Ctrl+1)" AutomationProperties.Name="主机" />
                         <Button x:Name="ExceptionLogsTab" Content="异常日志" Style="{StaticResource DashboardTabButton}" Click="ExceptionLogs_Click"
@@ -103,7 +105,7 @@
                                 </ContextMenu>
                             </Button.ContextMenu>
                         </Button>
-                        <Button Style="{StaticResource DashboardIconButton}" Command="{Binding RefreshCommand}" ToolTip="刷新 (F5)" AutomationProperties.Name="刷新服务">
+                        <Button Style="{StaticResource DashboardIconButton}" Command="{Binding RefreshCommand}" Click="RefreshButton_Click" ToolTip="刷新 (F5)" AutomationProperties.Name="刷新">
                             <controls:LineIcon Kind="Refresh" />
                         </Button>
                         <Button x:Name="SettingsButton" Style="{StaticResource DashboardIconButton}" Click="MoreMenu_Click"
@@ -265,6 +267,7 @@
                                     <MenuItem Header="状态与最近启动记录" Command="{Binding ShowDetailCommand}" />
                                     <MenuItem Header="编辑…" Command="{Binding EditTaskCommand}" />
                                     <MenuItem Header="报警阈值设置…" Command="{Binding OpenTaskAlertSettingsCommand}" />
+                                    <MenuItem Header="自动重启规则…" Command="{Binding OpenTaskAutoRestartSettingsCommand}" />
                                     <MenuItem Style="{StaticResource TaskAppLaunchEntry}" /><MenuItem Style="{StaticResource TaskAutoRecoverEntry}" /><Separator />
                                     <MenuItem Header="启用" Command="{Binding EnableCommand}" /><MenuItem Header="禁用" Command="{Binding DisableCommand}" />
 
@@ -312,6 +315,7 @@
                                                 <MenuItem Header="状态与最近启动记录" Command="{Binding ShowDetailCommand}" />
                                                 <MenuItem Header="编辑…" Command="{Binding EditTaskCommand}" />
                                                 <MenuItem Header="报警阈值设置…" Command="{Binding OpenTaskAlertSettingsCommand}" />
+                                                <MenuItem Header="自动重启规则…" Command="{Binding OpenTaskAutoRestartSettingsCommand}" />
                                                 <MenuItem Header="启动" Command="{Binding StartCommand}" />
                                                 <MenuItem Header="停止" Command="{Binding StopCommand}" />
                                                 <MenuItem Style="{StaticResource TaskAppLaunchEntry}" /><MenuItem Style="{StaticResource TaskAutoRecoverEntry}" /><Separator />
@@ -449,6 +453,10 @@
                         <Button Content="{Binding DashboardEmptyActionLabel}" Command="{Binding DashboardEmptyActionCommand}" MinWidth="112" HorizontalAlignment="Center" />
                     </StackPanel>
                 </Grid>
+            </controls:PresencePanel>
+
+            <controls:PresencePanel x:Name="AutomationPage" Grid.Row="1" MotionKind="Page" Background="{DynamicResource Semantic.Brush.WindowBackground}" IsPresented="{Binding IsAutomationPage}">
+                <controls:AutomationView x:Name="AutomationViewControl" />
             </controls:PresencePanel>
 
             <controls:MonitoringView x:Name="MonitoringTabs" Grid.Row="1"

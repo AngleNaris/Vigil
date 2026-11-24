@@ -21,6 +21,9 @@ public record ApplicationSettings
     [JsonPropertyName("alert_settings")]
     public ResourceAlertSettings AlertSettings { get; init; } = new();
 
+    [JsonPropertyName("auto_restart_settings")]
+    public AutoRestartSettings AutoRestartSettings { get; init; } = new();
+
     [JsonExtensionData]
     public IDictionary<string, JsonElement>? AdditionalSettings { get; init; }
 }

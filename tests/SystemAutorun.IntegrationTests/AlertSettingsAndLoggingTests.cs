@@ -257,6 +257,39 @@ public sealed class AlertSettingsAndLoggingTests
                 await model.FlushAlertLogsAsync();
                 Assert.Equal(countBeforeJitter, alerts.Count);
 
+                // Simulate a flapping service (OK -> FAIL again within default 10m cooldown): must NOT spam repeat failure alerts.
+                var at3 = at2.AddSeconds(5);
+                adapter.SnapshotReader = _ => Task.FromResult(baseSnapshot with
+                {
+                    ReturnedAt = at3,
+                    Tasks = baseSnapshot.Tasks with
+                    {
+                        ObservedAt = at3,
+                        AttemptedAt = at3,
+                        Data = [taskSnap with { Status = "OK", Healthy = true, HealthObserved = true, Reason = "running" }],
+                    },
+                    Processes = baseSnapshot.Processes with { ObservedAt = at3, AttemptedAt = at3, Data = [procSnap] },
+                    Host = baseSnapshot.Host with { ObservedAt = at3, AttemptedAt = at3, Data = hostSnap with { CapturedAt = at3 } },
+                });
+                await model.RefreshCommand.ExecuteAsync(null);
+
+                var at4 = at3.AddSeconds(5);
+                adapter.SnapshotReader = _ => Task.FromResult(baseSnapshot with
+                {
+                    ReturnedAt = at4,
+                    Tasks = baseSnapshot.Tasks with
+                    {
+                        ObservedAt = at4,
+                        AttemptedAt = at4,
+                        Data = [taskSnap with { Status = "FAIL", Healthy = false, HealthObserved = true, Reason = "process-not-found" }],
+                    },
+                    Processes = baseSnapshot.Processes with { ObservedAt = at4, AttemptedAt = at4, Data = [procSnap] },
+                    Host = baseSnapshot.Host with { ObservedAt = at4, AttemptedAt = at4, Data = hostSnap with { CapturedAt = at4 } },
+                });
+                await model.RefreshCommand.ExecuteAsync(null);
+                await model.FlushAlertLogsAsync();
+                Assert.Equal(countBeforeJitter, alerts.Count);
+
                 Assert.Contains(model.ExceptionLogs, entry => entry.Message.Contains("[资源告警]", StringComparison.Ordinal)
                     && entry.Message.Contains("wsl-worker", StringComparison.Ordinal));
                 Assert.Contains(model.ExceptionLogs, entry => entry.Message.Contains("[状态告警]", StringComparison.Ordinal)

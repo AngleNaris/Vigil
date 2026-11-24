@@ -204,6 +204,7 @@ public partial class AlertSettingsWindow : ToolWindow
                     GlobalProcMemTextBox.Text = FormatPercent(_draft.ProcessMemoryPercent);
                     GlobalProcMemMbTextBox.Text = _draft.ProcessMemoryMb.ToString(CultureInfo.InvariantCulture);
                     GlobalSustainTextBox.Text = _draft.CpuSustainSeconds.ToString(CultureInfo.InvariantCulture);
+                    GlobalCooldownTextBox.Text = _draft.NotificationCooldownMinutes.ToString(CultureInfo.InvariantCulture);
                     break;
 
                 case TargetKind.Host:
@@ -315,6 +316,7 @@ public partial class AlertSettingsWindow : ToolWindow
                     ProcessMemoryPercent = ParsePercent(GlobalProcMemTextBox.Text, "全局服务内存占比告警"),
                     ProcessMemoryMb = ParseMemoryMb(GlobalProcMemMbTextBox.Text, "全局服务内存上限"),
                     CpuSustainSeconds = ParseSustainSeconds(GlobalSustainTextBox.Text, "全局 CPU 持续时间"),
+                    NotificationCooldownMinutes = ParseCooldownMinutes(GlobalCooldownTextBox.Text, "告警通知冷却间隔"),
                 }).CloneNormalized();
                 break;
 
@@ -490,6 +492,17 @@ public partial class AlertSettingsWindow : ToolWindow
             || value < 0 || value > 3600)
         {
             throw new ArgumentException($"{label} 必须是 0 到 3600 之间的整数。");
+        }
+
+        return value;
+    }
+
+    private static int ParseCooldownMinutes(string text, string label)
+    {
+        if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            || value < 0 || value > 1440)
+        {
+            throw new ArgumentException($"{label} 必须是 0 到 1440 之间的整数。");
         }
 
         return value;

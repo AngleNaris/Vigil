@@ -317,7 +317,7 @@
                                        FontFamily="Cascadia Mono, Consolas"
                                        FontSize="10.5"
                                        Foreground="{DynamicResource TextMuted}"
-                                       Text="v1.0.0" />
+                                       Text="v1.1.0" />
                         </Border>
                         <Button Style="{StaticResource CaptionButtonStyle}" Click="Minimize_Click" ToolTip="最小化" AutomationProperties.Name="最小化">
                             <Path Width="11" Height="11" Stretch="Uniform" Data="M2,12 H22" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.6" />

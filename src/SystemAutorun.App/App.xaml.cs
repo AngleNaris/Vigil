@@ -185,6 +185,23 @@ public partial class App : System.Windows.Application
         return succeeded;
     }
 
+    internal async Task<bool> RunMaintenanceElevationAsync(bool install)
+    {
+        var command = install ? "install-maintenance" : "uninstall-maintenance";
+        var extra = Array.Empty<string>();
+        if (install)
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var sid = identity.User?.Value;
+            if (!string.IsNullOrWhiteSpace(sid))
+            {
+                extra = ["--sid", sid];
+            }
+        }
+
+        return await RunElevatedAsync(command, extra);
+    }
+
     // Compatibility bridge only. Native startup writes stay closed until the
     // protected shared workflow is complete; never ask runas to use the old path.
     internal Task<bool> RunElevatedStartupMutationAsync(StartupEntry entry, string action) => Task.FromResult(false);

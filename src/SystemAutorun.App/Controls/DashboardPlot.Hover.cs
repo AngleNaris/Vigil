@@ -77,7 +77,7 @@ public sealed partial class DashboardPlot
         { ClearHover(); return; }
         if (_hoverPosition is null || property != PointsProperty && property != SecondaryPointsProperty
             && property != IntervalsProperty && property != EndAtProperty && property != DataAtProperty
-            && property != BytesProperty && property != RateProperty) { return; }
+            && property != BytesProperty && property != RateProperty && property != CountProperty && property != ThresholdProperty) { return; }
         _hoverPending?.Abort();
         _hoverPending = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
@@ -184,8 +184,8 @@ public sealed partial class DashboardPlot
             {
                 lineX = Math.Clamp(bounds.Left + Position(sample.At) / ActualWidth * bounds.Width, bounds.Left, bounds.Right);
                 header = HoverTime(sample.At, sample.From, sample.To, sample.From is not null && sample.To is not null);
-                first = HoverMetricLabel(sample.Primary, Bytes, Rate);
-                if (SecondaryPoints is not null) { second = HoverMetricLabel(sample.Secondary, Bytes, Rate); }
+                first = HoverMetricLabel(sample.Primary, Bytes, Rate, Count);
+                if (SecondaryPoints is not null) { second = HoverMetricLabel(sample.Secondary, Bytes, Rate, Count); }
             }
             else
             {
@@ -302,7 +302,9 @@ public sealed partial class DashboardPlot
         var nearest = double.PositiveInfinity;
         if (!primaryGap) { Consider(primary); }
         if (!secondaryGap) { Consider(secondary); }
-        if (anchor is null || !history && nearest > ResourceTrendBuffer.MaximumGap.TotalSeconds) { return null; }
+        var inConnectedSpan = !history && ((!primaryGap && InConnectedSpan(primary, at)) || (!secondaryGap && InConnectedSpan(secondary, at)));
+        var maxHoverDistance = inConnectedSpan ? MaximumRenderGap.TotalSeconds : ResourceTrendBuffer.MaximumGap.TotalSeconds;
+        if (anchor is null || !history && nearest > maxHoverDistance) { return null; }
         var selected = anchor;
         var first = primaryGap ? null : Match(primary); var second = secondaryGap ? null : Match(secondary);
 
@@ -318,7 +320,17 @@ public sealed partial class DashboardPlot
             {
                 var previous = points[index - 1]; var next = points[index];
                 if (previous.At < target && target < next.At)
-                { return next.BreakBefore || !Valid(previous.Value) || !Valid(next.Value) || next.At - previous.At > ResourceTrendBuffer.MaximumGap; }
+                { return next.BreakBefore || !Valid(previous.Value) || !Valid(next.Value) || next.At - previous.At > MaximumRenderGap; }
+            }
+            return false;
+        }
+        static bool InConnectedSpan(IReadOnlyList<PlotPoint> points, DateTimeOffset target)
+        {
+            for (var index = 1; index < points.Count; index++)
+            {
+                var previous = points[index - 1]; var next = points[index];
+                if (previous.At <= target && target <= next.At)
+                { return !next.BreakBefore && Valid(previous.Value) && Valid(next.Value) && next.At - previous.At <= MaximumRenderGap; }
             }
             return false;
         }
@@ -392,10 +404,11 @@ public sealed partial class DashboardPlot
         return new(at, known?.State ?? "unknown", match?.From, match?.To);
     }
 
-    internal static string HoverMetricLabel(double? value, bool bytes, bool rate)
+    internal static string HoverMetricLabel(double? value, bool bytes, bool rate, bool count = false)
     {
         if (!Valid(value)) { return "未采样"; }
         var number = value!.Value;
+        if (count) { return Math.Round(number).ToString("N0", CultureInfo.CurrentCulture); }
         if (!bytes && !rate) { return $"{number.ToString("0.0", CultureInfo.CurrentCulture)}%"; }
         string[] units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
         var unit = 0;

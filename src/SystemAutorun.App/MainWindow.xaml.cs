@@ -28,6 +28,7 @@ public partial class MainWindow : Window, IDialogScrimHost
     private readonly MainWindowViewModel _viewModel;
     private readonly DispatcherTimer _refreshTimer;
     private readonly DispatcherTimer _dashboardClock;
+    private readonly DispatcherTimer _backgroundAlertTimer;
     private readonly AgentStartupClient _startupClient;
     private readonly StartupCacheStore _startupCache;
     private readonly ListReorderDragController<TaskRowViewModel> _serviceDragController;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window, IDialogScrimHost
     private bool _refreshOnReturn;
     private bool _initialEntrancePlayed;
     private bool _dialogBackdropActive;
+    private bool _closed;
     private HwndSource? _windowSource;
 
     internal MainWindow(MainWindowViewModel viewModel, AgentStartupClient startupClient, StartupCacheStore startupCache)
@@ -53,6 +55,8 @@ public partial class MainWindow : Window, IDialogScrimHost
         _refreshTimer = new DispatcherTimer(viewModel.AutoRefreshInterval, DispatcherPriority.Background, OnRefreshTimer, Dispatcher);
         if (!viewModel.AutoRefresh) { _refreshTimer.Stop(); }
         _dashboardClock = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, OnDashboardClock, Dispatcher);
+        _backgroundAlertTimer = new DispatcherTimer(TimeSpan.FromSeconds(10), DispatcherPriority.Background, OnBackgroundAlertTimer, Dispatcher);
+        _backgroundAlertTimer.Stop();
         IsVisibleChanged += (_, _) => UpdatePresentationActivity();
         StateChanged += (_, _) => { UpdateWindowRootMaximizePadding(); UpdatePresentationActivity(); };
         SizeChanged += (_, _) => { if (WindowState == WindowState.Maximized) { UpdateWindowRootMaximizePadding(); } };
@@ -94,7 +98,15 @@ public partial class MainWindow : Window, IDialogScrimHost
         viewModel.EditTaskRequested += (_, task) => OpenEditProgram(task);
         viewModel.RemoteHostDialogRequested += (_, editingId) => OpenRemoteHosts(editingId);
         viewModel.AlertSettingsRequested += (_, focusKey) => OpenAlertSettings(focusKey);
+        viewModel.AutoRestartSettingsRequested += (_, taskName) => OpenAutoRestartSettings(taskName);
         viewModel.AlertRequested += (_, message) => App.CurrentApp.ShowTrayInfo("家庭服务器告警", message);
+
+        AutomationViewControl.Bind(
+            () => _viewModel.PrepareAlertSettingsEditAsync(),
+            (settings, original) => _viewModel.ApplyAutoRestartSettingsAsync(settings, original),
+            () => _viewModel.TryReadAutoRestartStatusAsync(),
+            ruleId => _viewModel.RunAutoRestartRuleAsync(ruleId),
+            install => App.CurrentApp.RunMaintenanceElevationAsync(install));
 
         _serviceDragController = new ListReorderDragController<TaskRowViewModel>(
             ServiceList,
@@ -112,6 +124,11 @@ public partial class MainWindow : Window, IDialogScrimHost
     }
 
     internal MainWindowViewModel ViewModel => _viewModel;
+    internal TimeSpan BackgroundAlertInterval
+    {
+        get => _backgroundAlertTimer.Interval;
+        set => _backgroundAlertTimer.Interval = value;
+    }
     private Window DialogOwner => OwnedWindows.Cast<Window>().LastOrDefault(window =>
         window is ToolWindow tool ? tool.IsPresentationActive : window.IsVisible) ?? this;
 
@@ -203,6 +220,7 @@ public partial class MainWindow : Window, IDialogScrimHost
 
     private void Window_Closed(object? sender, EventArgs e)
     {
+        _closed = true;
         if (_windowSource is { IsDisposed: false } source) { source.RemoveHook(WindowMessageHook); }
         _windowSource = null;
         foreach (var dialog in _openDialogs.ToArray()) { UntrackDialog(dialog); }
@@ -210,6 +228,7 @@ public partial class MainWindow : Window, IDialogScrimHost
         _refreshOnReturn = false;
         _refreshTimer.Stop();
         _dashboardClock.Stop();
+        _backgroundAlertTimer.Stop();
         _viewModel.RefreshCommand.PropertyChanged -= RefreshCommand_PropertyChanged;
         _viewModel.DetachDashboard();
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
@@ -261,11 +280,21 @@ public partial class MainWindow : Window, IDialogScrimHost
 
     private void UpdatePresentationActivity()
     {
+        if (_closed)
+        {
+            _refreshOnReturn = false;
+            DataChangePulse.SetSuppress(this, false);
+            _dashboardClock.Stop();
+            _refreshTimer.Stop();
+            _backgroundAlertTimer.Stop();
+            return;
+        }
         var wasActive = _viewModel.IsPresentationActive;
         var active = IsVisible && WindowState != WindowState.Minimized && !_dialogBackdropActive;
         _viewModel.SetPresentationActive(active);
         if (active)
         {
+            _backgroundAlertTimer.Stop();
             _dashboardClock.Start();
             if (_viewModel.AutoRefresh) { _refreshTimer.Start(); } else { _refreshTimer.Stop(); }
             if ((_hasBeenPresented || _viewModel.HasMonitoringSnapshot) && !wasActive && _viewModel.AutoRefresh)
@@ -282,7 +311,14 @@ public partial class MainWindow : Window, IDialogScrimHost
             DataChangePulse.SetSuppress(this, false);
             _dashboardClock.Stop();
             _refreshTimer.Stop();
+            if (_viewModel.AutoRefresh) { _backgroundAlertTimer.Start(); } else { _backgroundAlertTimer.Stop(); }
         }
+    }
+
+    private void OnBackgroundAlertTimer(object? sender, EventArgs e)
+    {
+        if (_closed || _viewModel.IsPresentationActive || !_viewModel.AutoRefresh) { return; }
+        _viewModel.RequestAutomaticFullRefresh();
     }
 
     private void OnDashboardClock(object? sender, EventArgs e)
@@ -294,6 +330,7 @@ public partial class MainWindow : Window, IDialogScrimHost
     private async void OnRefreshTimer(object? sender, EventArgs e)
     {
         if (!_viewModel.AutoRefresh) { return; }
+        if (_viewModel.IsAutomationPage) { _ = AutomationViewControl.RefreshAsync(); }
         if (!_viewModel.FullRefreshDue)
         {
             _viewModel.RefreshResourcesIfDue();
@@ -382,7 +419,12 @@ public partial class MainWindow : Window, IDialogScrimHost
                 case Key.D4: SelectTab(MainWindowViewModel.ExceptionLogsPage); e.Handled = true; return;
             }
         }
-        if (e.Key == Key.Delete && Keyboard.FocusedElement is not TextBoxBase and not ComboBox
+        if (e.Key == Key.F5 && _viewModel.IsAutomationPage)
+        {
+            _ = AutomationViewControl.RefreshAsync();
+        }
+        if (e.Key == Key.Delete && _viewModel.IsWorkloadsPage
+            && Keyboard.FocusedElement is not TextBoxBase and not ComboBox
             && _viewModel.RemoveTaskCommand.CanExecute(null))
         {
             _viewModel.RemoveTaskCommand.Execute(null);
@@ -409,8 +451,16 @@ public partial class MainWindow : Window, IDialogScrimHost
     }
 
     private void ServicesTab_Click(object sender, RoutedEventArgs e) => SelectTab(MainWindowViewModel.WorkloadsPage);
+    private void AutomationTab_Click(object sender, RoutedEventArgs e) => SelectTab(MainWindowViewModel.AutomationPage);
     private void Hosts_Click(object sender, RoutedEventArgs e) => SelectTab(MainWindowViewModel.OverviewPage);
     private void ExceptionLogs_Click(object sender, RoutedEventArgs e) => SelectTab(MainWindowViewModel.ExceptionLogsPage);
+
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        _ = sender;
+        _ = e;
+        if (_viewModel.IsAutomationPage) { _ = AutomationViewControl.RefreshAsync(); }
+    }
 
     // R106: appearance follows Windows by default; the choice applies live to every open window.
     private void AppearanceMenu_SubmenuOpened(object sender, RoutedEventArgs e)
@@ -455,15 +505,20 @@ public partial class MainWindow : Window, IDialogScrimHost
         RestoreDashboardFocus(previous, SettingsButton);
     }
 
-    // R105: services, host and exception logs are peer tabs of this window.
+    // R105: services, automation, host and exception logs are peer tabs of this window.
     internal void SelectTab(string page)
     {
-        // Service controls and exception logs are local-only. Leaving the host tab returns to the
+        // Service controls, automation and exception logs are local-only. Leaving the host tab returns to the
         // local host (OnSelectedHostTabChanged refreshes) so remote resources never back them.
         if (page != MainWindowViewModel.OverviewPage && _viewModel.Hosts.FirstOrDefault(host => host.IsLocal) is { } local
             && !ReferenceEquals(_viewModel.SelectedHostTab, local))
         { _viewModel.SelectedHostTab = local; }
         if (_viewModel.NavigateCommand.CanExecute(page)) { _viewModel.NavigateCommand.Execute(page); }
+        if (page == MainWindowViewModel.AutomationPage)
+        {
+            AutomationViewControl.PlayEntranceAnimation();
+            _ = AutomationViewControl.RefreshAsync();
+        }
     }
 
     private void RestoreDashboardFocus(IInputElement? previous, UIElement? fallback = null)
@@ -771,6 +826,15 @@ public partial class MainWindow : Window, IDialogScrimHost
             if (!App.CurrentApp.IsExiting) { MessageDialog.ShowError(DialogOwner, "报警阈值读取失败", AgentErrorMessages.Format(exception)); }
         }
         finally { RestoreDashboardFocus(previous, SettingsButton); }
+    }
+
+    private async void OpenAutoRestartSettings(string? focusTaskName = null) => await OpenAutoRestartSettingsAsync(focusTaskName);
+
+    internal async Task OpenAutoRestartSettingsAsync(string? focusTaskName = null)
+    {
+        if (App.CurrentApp.IsExiting) { return; }
+        SelectTab(MainWindowViewModel.AutomationPage);
+        await AutomationViewControl.RefreshAsync(focusTaskName);
     }
 
     private void UpdateWindowRootMaximizePadding()

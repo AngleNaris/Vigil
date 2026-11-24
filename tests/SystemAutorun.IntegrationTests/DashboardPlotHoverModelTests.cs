@@ -54,6 +54,33 @@ public sealed class DashboardPlotHoverModelTests
     }
 
     [Fact]
+    public void LiveHoverResolvesBackgroundTenSecondRemoteSamplesWhileStillRejectingBreaksAndOutOfRange()
+    {
+        PlotPoint[] remote =
+        [
+            new(Start, 12),
+            new(Start.AddSeconds(10), 18),
+            new(Start.AddSeconds(22), 24), // 12s with ±20% jitter, still <= 15s
+            new(Start.AddSeconds(32), 30, BreakBefore: true),
+            new(Start.AddSeconds(50), 36), // 18s gap > 15s
+        ];
+
+        var mid1 = Assert.IsType<DashboardPlot.HoverSample>(DashboardPlot.ResolveHover(remote, [], Start.AddSeconds(4)));
+        Assert.Equal(Start, mid1.At);
+        Assert.Equal(12, mid1.Primary);
+
+        var mid2 = Assert.IsType<DashboardPlot.HoverSample>(DashboardPlot.ResolveHover(remote, [], Start.AddSeconds(17)));
+        Assert.Equal(Start.AddSeconds(22), mid2.At);
+        Assert.Equal(24, mid2.Primary);
+
+        // Explicit reconnect break and >15s gap remain un-sampled.
+        Assert.Null(DashboardPlot.ResolveHover(remote, [], Start.AddSeconds(27)));
+        Assert.Null(DashboardPlot.ResolveHover(remote, [], Start.AddSeconds(41)));
+        // Past the final point by >3s still returns null.
+        Assert.Null(DashboardPlot.ResolveHover(remote, [], Start.AddSeconds(60)));
+    }
+
+    [Fact]
     public void HistoryHoverUsesTheContainingBucketAndKeepsMissingDirectionUnknown()
     {
         var middle = Start.AddMinutes(1); var end = Start.AddMinutes(2);

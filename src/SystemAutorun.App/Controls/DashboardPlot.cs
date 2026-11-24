@@ -57,6 +57,11 @@ public sealed partial class DashboardPlot : FrameworkElement
     public static readonly DependencyProperty RateProperty = DependencyProperty.Register(
         nameof(Rate), typeof(bool), typeof(DashboardPlot), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender,
             (target, _) => ((DashboardPlot)target)._scale.Reset()));
+    public static readonly DependencyProperty CountProperty = DependencyProperty.Register(
+        nameof(Count), typeof(bool), typeof(DashboardPlot), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender,
+            (target, _) => ((DashboardPlot)target)._scale.Reset()));
+    public static readonly DependencyProperty ThresholdProperty = DependencyProperty.Register(
+        nameof(Threshold), typeof(double?), typeof(DashboardPlot), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty EmptyTextProperty = DependencyProperty.Register(
         nameof(EmptyText), typeof(string), typeof(DashboardPlot), new FrameworkPropertyMetadata("此时段无有效采样", FrameworkPropertyMetadataOptions.AffectsRender));
     public string EmptyText { get => (string)GetValue(EmptyTextProperty); set => SetValue(EmptyTextProperty, value); }
@@ -73,7 +78,7 @@ public sealed partial class DashboardPlot : FrameworkElement
     private static readonly DashStyle GridDashStyle = CreateFrozenDashStyle();
     private readonly OverlayVisual _overlayVisual = new();
     private PlotPoint[] _visiblePoints = [], _visibleSecondary = [];
-    private (Color Color, Pen Pen)? _framePenCache, _guidePenCache, _tickPenCache, _primaryPenCache, _secondaryPenCache, _hatchPenCache, _baselinePenCache;
+    private (Color Color, Pen Pen)? _framePenCache, _guidePenCache, _thresholdPenCache, _tickPenCache, _primaryPenCache, _secondaryPenCache, _hatchPenCache, _baselinePenCache;
     private (Color Color, LinearGradientBrush Brush)? _primaryAreaCache, _secondaryAreaCache;
     private HealthCellsCacheKey _cachedHealthCellsKey;
     private DrawingGroup? _cachedHealthCells;
@@ -124,6 +129,8 @@ public sealed partial class DashboardPlot : FrameworkElement
         TimeSpan Duration,
         bool Bytes,
         bool Rate,
+        bool Count,
+        double? Threshold,
         string ScaleKey,
         IReadOnlyList<PlotPoint>? PointsRef,
         int PointsCount,
@@ -143,6 +150,8 @@ public sealed partial class DashboardPlot : FrameworkElement
         double ScaleMax,
         bool Bytes,
         bool Rate,
+        bool Count,
+        double? Threshold,
         string CultureName,
         double PixelsPerDip,
         Color SubtleColor,
@@ -165,6 +174,8 @@ public sealed partial class DashboardPlot : FrameworkElement
         Color HintColor);
     public IReadOnlyList<PlotPoint>? SecondaryPoints { get => (IReadOnlyList<PlotPoint>?)GetValue(SecondaryPointsProperty); set => SetValue(SecondaryPointsProperty, value); }
     public bool Rate { get => (bool)GetValue(RateProperty); set => SetValue(RateProperty, value); }
+    public bool Count { get => (bool)GetValue(CountProperty); set => SetValue(CountProperty, value); }
+    public double? Threshold { get => (double?)GetValue(ThresholdProperty); set => SetValue(ThresholdProperty, value); }
     public string PrimaryLabel { get => (string)GetValue(PrimaryLabelProperty); set => SetValue(PrimaryLabelProperty, value); }
     public string SecondaryLabel { get => (string)GetValue(SecondaryLabelProperty); set => SetValue(SecondaryLabelProperty, value); }
     private Rect _plot;
@@ -532,6 +543,8 @@ public sealed partial class DashboardPlot : FrameworkElement
             Duration,
             Bytes,
             Rate,
+            Count,
+            Threshold,
             ScaleKey,
             points,
             pointsCount,
@@ -553,7 +566,12 @@ public sealed partial class DashboardPlot : FrameworkElement
             if (_cachedTrendHasValues)
             {
                 _plot = _cachedTrendDataBounds;
-                _renderScale = _scale.Update(values, Bytes, EndAt, Rate);
+                var scaleValues = values;
+                if (Threshold is > 0 and var threshold && double.IsFinite(threshold))
+                {
+                    scaleValues = [.. values, threshold];
+                }
+                _renderScale = _scale.Update(scaleValues, Bytes, EndAt, Rate, Count);
             }
             else
             {
@@ -634,6 +652,8 @@ public sealed partial class DashboardPlot : FrameworkElement
             scale.Maximum,
             Bytes,
             Rate,
+            Count,
+            Threshold,
             CultureInfo.CurrentCulture.Name,
             dpi,
             BrushColor(subtleBrush),
@@ -689,6 +709,18 @@ public sealed partial class DashboardPlot : FrameworkElement
                 var sweepClip = new RectangleGeometry(new Rect(_plot.Left - 1.5, _plot.Top - 3, _plot.Width * progress + 1.5, _plot.Height + 6));
                 sweepClip.Freeze();
                 context.PushClip(sweepClip);
+            }
+            if (Threshold is > 0 and var threshold && double.IsFinite(threshold)
+                && threshold >= scale.Minimum && threshold <= scale.Maximum)
+            {
+                var span = Math.Max(1e-9, scale.Maximum - scale.Minimum);
+                var ty = _plot.Bottom - (threshold - scale.Minimum) / span * _plot.Height;
+                var thresholdPen = CachedPen(ref _thresholdPenCache, hintBrush, 1.0, dashStyle: GridDashStyle);
+                context.DrawLine(thresholdPen, new Point(_plot.Left, ty), new Point(_plot.Right, ty));
+                var tag = Text($"阈值 {ScaleLabel(threshold, scale.Maximum)}", 10);
+                var tagX = Math.Max(_plot.Left + 2, _plot.Right - tag.Width - 4);
+                var tagY = ty - tag.Height - 1 >= _plot.Top ? ty - tag.Height - 1 : ty + 2;
+                context.DrawText(tag, new Point(tagX, tagY));
             }
             context.DrawDrawing(_cachedTrendSeries);
             if (!clipping && _cachedPrimaryTailPoint is { } tail)
@@ -961,11 +993,17 @@ public sealed partial class DashboardPlot : FrameworkElement
     private static bool ValidInset(object value) => value is double inset && double.IsFinite(inset) && inset >= 0;
     private string ScaleLabel(double value, double upper)
     {
-        return MetricLabel(value, upper, Bytes, Rate);
+        return MetricLabel(value, upper, Bytes, Rate, Count);
     }
 
-    internal static string MetricLabel(double value, double upper, bool bytes, bool rate)
+    internal static string MetricLabel(double value, double upper, bool bytes, bool rate, bool count = false)
     {
+        if (count)
+        {
+            if (value >= 1_000_000) { return $"{value / 1_000_000d:0.#}M"; }
+            if (value >= 1_000) { return $"{value / 1_000d:0.#}k"; }
+            return $"{Math.Round(value):0}";
+        }
         if (!bytes && !rate) { return $"{value:0.##}%"; }
         string[] units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
         var unit = 0; var divisor = 1d;

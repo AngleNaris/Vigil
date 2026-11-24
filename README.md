@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AngleNaris/Vigil/releases/tag/v1.0.0"><strong>下载 v1.0.0</strong></a>
+  <a href="https://github.com/AngleNaris/Vigil/releases/tag/v1.1.0"><strong>下载 v1.1.0</strong></a>
   &nbsp;·&nbsp;
   <a href="#三视图工作流">三视图工作流</a>
   &nbsp;·&nbsp;
@@ -108,14 +108,14 @@ vigil daemon stop --json
 
 | 安装包 | 说明 |
 | --- | --- |
-| [`Vigil-Setup-1.0.0-win-x64.exe`](https://github.com/AngleNaris/Vigil/releases/download/v1.0.0/Vigil-Setup-1.0.0-win-x64.exe) | **自包含版**（约 256.6 MB）：内置 `.NET 10` 运行时、GUI、CLI、后台 Agent 与配套卸载器，开箱即用 |
-| [`Vigil-Setup-1.0.0-win-x64-fd.exe`](https://github.com/AngleNaris/Vigil/releases/download/v1.0.0/Vigil-Setup-1.0.0-win-x64-fd.exe) | **不含 .NET 轻量版**（约 49.1 MB）：不含 `.NET` 运行时（体积减小 81%），需系统已安装 [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| [`Vigil-Setup-1.1.0-win-x64.exe`](https://github.com/AngleNaris/Vigil/releases/download/v1.1.0/Vigil-Setup-1.1.0-win-x64.exe) | **自包含版**（约 256.9 MB）：内置 `.NET 10` 运行时、GUI、CLI、后台 Agent 与配套卸载器，开箱即用 |
+| [`Vigil-Setup-1.1.0-win-x64-fd.exe`](https://github.com/AngleNaris/Vigil/releases/download/v1.1.0/Vigil-Setup-1.1.0-win-x64-fd.exe) | **不含 .NET 轻量版**（约 49.2 MB）：不含 `.NET` 运行时（体积减小 81%），需系统已安装 [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) |
 
 支持命令行静默部署与卸载：
 
 ```powershell
-# 静默安装（轻量版可替换为 .\Vigil-Setup-1.0.0-win-x64-fd.exe --silent）
-.\Vigil-Setup-1.0.0-win-x64.exe --silent
+# 静默安装（轻量版可替换为 .\Vigil-Setup-1.1.0-win-x64-fd.exe --silent）
+.\Vigil-Setup-1.1.0-win-x64.exe --silent
 
 # 静默卸载（保留配置与日志；如需一并删除可追加 --remove-data）
 .\Vigil-Uninstall.exe --uninstall --silent
@@ -124,8 +124,8 @@ vigil daemon stop --json
 安装包未附加商业代码签名，请仅从本仓库 [GitHub Releases](https://github.com/AngleNaris/Vigil/releases) 获取，并校验 SHA-256：
 
 ```text
-Vigil-Setup-1.0.0-win-x64.exe:    17a2c0b15c09368317b21b6ef31ed7145575f62ed09bc01318f2e0acb1539210
-Vigil-Setup-1.0.0-win-x64-fd.exe: 6fcaa57f88778eb4243e498a107e48508ae537a5f3877b9a5c7c0c05eef7c1b9
+Vigil-Setup-1.1.0-win-x64.exe:    07c05685744b9bef28675ab02cb04e0bf537da42b026c8f6c02e193f8d1a0529
+Vigil-Setup-1.1.0-win-x64-fd.exe: 7e3c07cfded5f7d7b61c2dbf0775ca94d8205da43022b44f390b211d90672598
 ```
 
 ## 自己构建

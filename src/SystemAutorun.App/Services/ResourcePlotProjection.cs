@@ -9,7 +9,9 @@ internal sealed record ResourcePlotSeries(IReadOnlyList<PlotPoint> Cpu, IReadOnl
 {
     internal static readonly ResourcePlotSeries Empty = new([], [], [], [], [], []);
     internal static ResourcePlotSeries From(ResourceHistoryResult result) => From(result.Source, result.From, result.To, result.Points,
-        TimeSpan.FromSeconds(result.SourceIntervalSeconds * 1.5));
+        result.RemoteHostId is not null && result.Source == ResourceHistorySource.RecentSeconds
+            ? TimeSpan.FromSeconds(15)
+            : TimeSpan.FromSeconds(result.SourceIntervalSeconds * 1.5));
     internal static ResourcePlotSeries From(RecentResourceHistoryResult result) => From(result.Source, result.From, result.To, result.Points,
         result.RemoteHostId is not null ? TimeSpan.FromSeconds(15) : TimeSpan.FromMilliseconds(result.SourceIntervalMilliseconds * 1.5));
     private static ResourcePlotSeries From(ResourceHistorySource source, DateTimeOffset from, DateTimeOffset to, IReadOnlyList<ResourceHistoryPoint> points, TimeSpan maximumGap) => new(

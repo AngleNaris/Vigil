@@ -1,5 +1,49 @@
 # Verification
 
+## 2026-11-24 — Vigil v1.1.0 独立「自动化」标签页（进程自动重启、峰值与不活跃句柄遥测）与告警通知限频
+
+- **功能范围**：
+  - 新增与「服务」平级的顶层「自动化」视图（[AutomationView.xaml](<src/SystemAutorun.App/Controls/AutomationView.xaml>)）及独立规则设置弹窗（[AutoRestartRuleWindow.xaml](<src/SystemAutorun.App/Dialogs/AutoRestartRuleWindow.xaml>)），支持已纳管服务与任意 Windows 进程（含命令行子串过滤、无白名单限制、可选提权维护通道 `\Vigil\Maintenance`）的定时与资源阈值自动重启。
+  - 实时 2×2 遥测面板覆盖 CPU / 内存 / 总句柄（含 GDI & USER）/ 不活跃句柄（带迟滞防抖）及历史峰值，并在 [DashboardPlot.cs](<src/SystemAutorun.App/Controls/DashboardPlot.cs>) 增加计数刻度与带扫绘动画的灰色阈值虚线；完整接入 `LineMotion`、`SurfaceMotion` 与 `DataChangePulse` 动效，顶栏明确区分「自动：已启用/已停用」与「立即执行一次」。
+  - 新增 `vigil autorestart status` / `vigil autorestart run <RULE_ID> --yes` CLI 子命令及 Agent RPC 路由。
+  - 为服务故障、主机离线与资源超标通知新增可配置同源冷却限频（`ResourceAlertSettings.NotificationCooldownMinutes`，默认 10 分钟），防止异常服务反复拉起时通知刷屏。
+- **ENG / VIS / FLOW 实测**：
+  - `dotnet build SystemAutorun.sln --configuration Release`：0 警告、0 错误。
+  - `SystemAutorun.Core.Tests`：**1170 / 1170** 通过；`SystemAutorun.IntegrationTests` 回归（`AutoRestartFeatureTests`、`AlertSettingsAndLoggingTests`、`PointerInteractionWindowTests`、`ResourceDashboardWindowTests`）全部通过，含真实进程匹配/句柄读取/结束、抖动服务通知限频与深浅色实机渲染截图核验。
+  - 构建并校验 `v1.1.0` 双安装包，通过 `tests\PublishedCli.Smoke.ps1`（876 文件、4 PE 入口与完整 Console/Agent 生命周期验证）：
+    - `Vigil-Setup-1.1.0-win-x64.exe`（`256.9 MB`）：`07c05685744b9bef28675ab02cb04e0bf537da42b026c8f6c02e193f8d1a0529`
+    - `Vigil-Setup-1.1.0-win-x64-fd.exe`（`49.2 MB`）：`7e3c07cfded5f7d7b61c2dbf0775ca94d8205da43022b44f390b211d90672598`
+
+## 2026-11-23 — 修复后台监控不报警、远程后台图表悬停「未采样」及进程监控漏采（含 TCP 健康检查进程与 ETW 会话泄漏）
+
+- **实机核实与改动范围**：
+  1. **后台监控不报警（须切前台才报警）**：
+     - 在 [MainWindow.xaml.cs](<src/SystemAutorun.App/MainWindow.xaml.cs>) 新增低频后台轮询定时器 `_backgroundAlertTimer`（默认 `10s`，内部暴露 `BackgroundAlertInterval` 供回归测试调速）及 `_closed` 守卫：窗口隐藏到托盘、最小化或 `--background` 启动时，停掉前景 `_dashboardClock`/`_refreshTimer` 的同时按 `AutoRefresh` 维持 `_backgroundAlertTimer` 运行，定时调用 `RequestAutomaticFullRefresh()` 走 `!_presentationActive` 的轻量被动观测与告警链路，窗口关闭时完整停止并防 `UpdateScrim()` 重启。
+     - 在 [AgentRemoteHostMonitor.cs](<src/SystemAutorun.Agent/AgentRemoteHostMonitor.cs>) 的 `GetFreshSnapshots()` 中，对已完成首次探测且存在真实 `LastError` 的已启用离线远程主机同步回传 `Online: false` 快照（保留真实错误与 `LastAttemptCompletedAt`）；在 [MainWindowViewModel.Monitoring.cs](<src/SystemAutorun.App/ViewModels/MainWindowViewModel.Monitoring.cs>) 的 `ApplyMonitoringGroups()` 合并远程真实离线状态，使后台/本机页均能及时触发工作负载故障、资源超阈值与远程离线三类告警，同时保持本地过期占位零误报。
+  2. **远程服务器后台监测图表全部显示「未采样」**：
+     - 在 [DashboardPlot.Hover.cs](<src/SystemAutorun.App/Controls/DashboardPlot.Hover.cs>) 的 `ResolveHover()` 中，将 `InGap` 连续间隔上限由 `ResourceTrendBuffer.MaximumGap`（`3s`）对齐为 `MaximumRenderGap`（`15s`），并新增 `InConnectedSpan` 判定，使后台 `10s ± 20%`（`8~12s`）连续采样点之间的悬停能正确命中真实样本，同时保持显式 `BreakBefore`、`>15s` 断采与末点外 `>3s` 仍返回未采样。
+     - 在 [ResourcePlotProjection.cs](<src/SystemAutorun.App/Services/ResourcePlotProjection.cs>) 的 v1 兼容重载 `From(ResourceHistoryResult)` 同步对远程 `RecentSeconds` 使用 `15s` 连续上限。
+  3. **某些情况下进程监控不到数据（实机定位本机 `agy-server`：`type: windows` + `health.type: tcp` 无 `pattern`，实测 `Count=0`）**：
+     - 在 [ProcessIdentity.cs](<src/SystemAutorun.Windows/Execution/ProcessIdentity.cs>) 对 `task.Health.Pattern` 为空的任务回退至 `Path.GetFileName(task.Executable)`（解决 `agy-server` 等 TCP 健康检查任务 100% 无进程数据）；将进程名规范化改为精准剥离 `.exe`（`NormalizeProcessName`），不再用 `GetFileNameWithoutExtension` 截断含点进程名；在 `FindMatchingProcessIds` 仅针对资源采集场景允许同名但 `OpenProcess` 无权限的提权/SYSTEM 进程回退原生采样，保持 `ReadPresence` 健康检查安全语义不变。
+     - 在 [MonitoringSnapshots.cs](<src/SystemAutorun.Core/Models/MonitoringSnapshots.cs>) 将 `ManagedProcessSnapshot.CpuUsageAvailable` 由 `.All(...)` 改为 `.Any(...)`，避免多实例进程出现单个新首采实例时整组 CPU/磁盘/网络速率归空。
+     - 在 [ProcessNetworkCounterTracker.cs](<src/SystemAutorun.Windows/Health/ProcessNetworkCounterTracker.cs>) 补齐 IPv6 opcode（Send `26`/`58`、Recv `27`/`59`），并将默认共享 ETW 会话名固定为 `"Vigil-KernelNetwork"`（消除按 PID 命名导致异常退出遗留孤儿 ETW 会话占满内核配额的问题；同时现场清理了 11 月 18 日遗留的两个死 PID 会话 `Vigil-KernelNetwork-20700` 与 `Vigil-KernelNetwork-29172`）。
+     - 在 [ManagedProcessReader.cs](<src/SystemAutorun.Windows/Health/ManagedProcessReader.cs>) 统一批次 `batchCapturedAt` 防慢探针连坐过期；在 [NativeMethods.cs](<src/SystemAutorun.Windows/Native/NativeMethods.cs>) 将 `TryQuerySystemProcesses` 与 `TryReadProcessMetrics` 合并为单次 `GCHandleType.Pinned` 生命周期消除 GC 指针偏移隐患。
+- **ENG（最终代码改动后于 `Debug` 配置实测通过）**：
+  - `dotnet build SystemAutorun.sln --no-restore -v minimal`：0 警告、0 错误。
+  - `SystemAutorun.Core.Tests`：**1160 / 1160** 通过（0 失败、0 跳过，3 s）。
+  - 受影响 `IntegrationTests`（`RemoteHostStreamingAndUiTests`、`DashboardPlotHoverModelTests`、`ProcessIdentityTests`、`ManagedProcessReaderTests`、`AlertSettingsAndLoggingTests`、`LiveResourceSamplingTests`）：**30 / 30** 通过（0 失败、0 跳过，34 s）；含新增 4 项回归：
+    - `RemoteHostStreamingAndUiTests.HiddenBackgroundWindowPollsAndEmitsRemoteOfflineAlertWithoutForegroundActivation`
+    - `DashboardPlotHoverModelTests.LiveHoverResolvesBackgroundTenSecondRemoteSamplesWhileStillRejectingBreaksAndOutOfRange`
+    - `ProcessIdentityTests.NormalizesProcessNameWithoutStrippingDotsBeforeExe` & `FallsBackToExecutableFileNameWhenTcpHealthCheckOmitsPattern`
+    - `ManagedProcessReaderTests.MultiInstanceTaskKeepsRatesAvailableWhenNewInstanceAppearsOnFirstSample`
+- **VIS / DEPLOY & 实机核验**：
+  - 本次未改 XAML/视觉样式（G2/VIS 不适用）。
+  - 执行 `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -NoRestore` 生成 `artifacts\installer\Vigil-Setup.exe`（`256.64 MB`）；优雅停机旧实例并清理旧 ETW 会话 `Vigil-KernelNetwork-12076` 后执行 `Vigil-Setup.exe --silent`（`ExitCode=0`）原地更新 `C:\Program Files\Vigil`，核对 `Vigil.dll` SHA-256 均为 `D681D3C505756EBEFE01774F7739C3FD7C0A369B91D87539912F1A6222655AC4`、`SystemAutorun.Windows.dll` SHA-256 均为 `F1365C0AE3AA035D46C8BF2859F5F3728AFD1E58A83364B9599304AB6D14B5A8`。
+  - 后台拉起 `"C:\Program Files\Vigil\Vigil.exe" --background`（PID `17640`）与 `Vigil.Agent.exe`（PID `19092`），通过 `"C:\Program Files\Vigil\cli\vigil.exe" monitor status --json` 实测确认：
+    - `agy-server` 从更新前 `Count=0 / CpuOk=False / MemMB=0` 恢复为 `State=OK / Count=1 / CpuOk=True / MemMB=69.6`，全部 13 项工作负载均正常采集；
+    - 远程主机 `魔法森林`（`cutclass-vps`）与 `Oracle ARM`（`oci-arm-public`）均 `online: True`；
+    - `logman query -ets` 确认仅存在唯一固定名 `Vigil-KernelNetwork` 实时 ETW 会话，零残留旧会话。
+
 ## 2026-11-18 — 新增不含 .NET 运行时的轻量安装程序构建选项（`-FrameworkDependent`）与双安装包发布
 
 - **构建脚本支持**：

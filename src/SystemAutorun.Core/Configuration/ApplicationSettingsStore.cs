@@ -54,6 +54,7 @@ public sealed class ApplicationSettingsStore
                 AdditionalSettings = source.AdditionalSettings?.ToDictionary(pair => pair.Key, pair => pair.Value.Clone()),
             }).ToArray(),
             AlertSettings = (settings.AlertSettings ?? new ResourceAlertSettings()).CloneNormalized(),
+            AutoRestartSettings = (settings.AutoRestartSettings ?? new AutoRestartSettings()).CloneNormalized(),
             AdditionalSettings = settings.AdditionalSettings?.ToDictionary(pair => pair.Key, pair => pair.Value.Clone()),
         };
         lock (_saveSync)
@@ -121,9 +122,15 @@ public sealed class ApplicationSettingsStore
             throw new ConfigurationException("alert_settings must be an object, not null.");
         }
 
+        if (settings.AutoRestartSettings is null)
+        {
+            throw new ConfigurationException("auto_restart_settings must be an object, not null.");
+        }
+
         try
         {
             ResourceAlertSettingsValidator.Validate(settings.AlertSettings);
+            AutoRestartSettingsValidator.Validate(settings.AutoRestartSettings);
         }
         catch (ArgumentException exception)
         {
@@ -135,7 +142,8 @@ public sealed class ApplicationSettingsStore
             || string.Equals(key, "auto_recover_failed_tasks", StringComparison.OrdinalIgnoreCase)
             || string.Equals(key, "remote_hosts", StringComparison.OrdinalIgnoreCase)
             || string.Equals(key, "log_sources", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(key, "alert_settings", StringComparison.OrdinalIgnoreCase)) == true)
+            || string.Equals(key, "alert_settings", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(key, "auto_restart_settings", StringComparison.OrdinalIgnoreCase)) == true)
         {
             throw new ConfigurationException("Additional settings must not shadow built-in settings.");
         }

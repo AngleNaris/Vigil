@@ -51,7 +51,7 @@ internal sealed class ProcessNetworkCounterTracker : IProcessNetworkCounterSourc
     internal ProcessNetworkCounterTracker(string? sessionName = null)
     {
         _sessionName = string.IsNullOrWhiteSpace(sessionName)
-            ? $"Vigil-KernelNetwork-{Environment.ProcessId}"
+            ? "Vigil-KernelNetwork"
             : sessionName;
         _eventCallback = OnEventRecord;
         _bufferCallback = OnBufferCallback;
@@ -184,11 +184,11 @@ internal sealed class ProcessNetworkCounterTracker : IProcessNetworkCounterSourc
         // 96: UserData (IntPtr)
         var opcode = Marshal.ReadByte(eventRecordPtr, 45);
         bool isSend;
-        if (opcode is 10 or 42)
+        if (opcode is 10 or 26 or 42 or 58)
         {
             isSend = true;
         }
-        else if (opcode is 11 or 43)
+        else if (opcode is 11 or 27 or 43 or 59)
         {
             isSend = false;
         }

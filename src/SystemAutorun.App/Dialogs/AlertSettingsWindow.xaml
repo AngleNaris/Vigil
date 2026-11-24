@@ -230,21 +230,24 @@
 
                             <Grid Margin="0,14,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="CPU 持续高占用秒数" />
                                     <TextBox x:Name="GlobalSustainTextBox" AutomationProperties.Name="全局 CPU 持续时间秒数" />
                                 </StackPanel>
-                                <TextBlock Grid.Column="1"
-                                           Margin="14,18,0,0"
-                                           VerticalAlignment="Center"
-                                           Style="{StaticResource HintTextStyle}"
-                                           FontSize="{StaticResource Primitive.Font.11}"
-                                           TextWrapping="Wrap"
-                                           Text="0 表示单次超过比例即触发告警；默认 60 秒可避免瞬时波动误报。" />
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelTextStyle}" Text="通知冷却间隔（分钟，0=不限）" />
+                                    <TextBox x:Name="GlobalCooldownTextBox" AutomationProperties.Name="告警通知冷却间隔分钟" />
+                                </StackPanel>
                             </Grid>
+                            <TextBlock Margin="0,8,0,0"
+                                       Style="{StaticResource HintTextStyle}"
+                                       FontSize="{StaticResource Primitive.Font.11}"
+                                       TextWrapping="Wrap"
+                                       Text="同一服务故障或资源超标在冷却间隔内最多弹一次系统通知（默认 10 分钟），防止异常服务反复拉起时刷屏。" />
                         </StackPanel>
 
                         <StackPanel x:Name="HostOverridePanel" Visibility="Collapsed">

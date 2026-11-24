@@ -48,7 +48,11 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Published package manifest not found: $manifestPath"
 }
 
-$versionedName = if ($selfContained) { 'Vigil-Setup-1.0.0-win-x64.exe' } else { 'Vigil-Setup-1.0.0-win-x64-fd.exe' }
+$propsPath = Join-Path $projectRoot 'Directory.Build.props'
+[xml]$propsXml = Get-Content -LiteralPath $propsPath
+$appVersion = ($propsXml.Project.PropertyGroup.Version | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+if ([string]::IsNullOrWhiteSpace($appVersion)) { $appVersion = '1.0.0' }
+$versionedName = if ($selfContained) { "Vigil-Setup-$appVersion-win-x64.exe" } else { "Vigil-Setup-$appVersion-win-x64-fd.exe" }
 $latestName = if ($selfContained) { 'Vigil-Setup.exe' } else { 'Vigil-Setup-fd.exe' }
 
 $stagingDir = Join-Path $artifactsRoot ('.installer-staging\' + [guid]::NewGuid().ToString('N'))

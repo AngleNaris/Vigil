@@ -134,6 +134,35 @@ public static class CliOutput
             { await output.WriteLineAsync("Source list truncated; select a task or configured source directly."); }
             return;
         }
+        if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("maintenanceTaskInstalled", out _)
+            && data.TryGetProperty("rules", out _))
+        {
+            var status = data.Deserialize<Core.Models.AutoRestartStatusSnapshot>(AgentProtocol.JsonOptions)!;
+            await output.WriteLineAsync($"auto-restart enabled: {status.Enabled} | agent elevated: {status.IsAgentElevated} | maintenance channel: {status.MaintenanceTaskInstalled}");
+            if (!string.IsNullOrWhiteSpace(status.MaintenanceTaskError))
+            {
+                await output.WriteLineAsync($"maintenance warning: {Safe(status.MaintenanceTaskError)}");
+            }
+            await output.WriteLineAsync("id\tname\tenabled\tmatched\tcpu%\tmem_mb\thandles\tlast_result\tnext_scheduled");
+            foreach (var rule in status.Rules)
+            {
+                var cpu = rule.LiveCpuPercent is { } c ? $"{c:0.0}" : "--";
+                var mem = rule.LiveWorkingSetBytes is { } b ? $"{b / (1024.0 * 1024.0):0}" : "--";
+                var handles = rule.LiveHandleCount is { } h ? h.ToString(System.Globalization.CultureInfo.InvariantCulture) : "--";
+                var last = rule.LastTriggeredAt is { } t ? $"{(rule.LastSucceeded == true ? "OK" : "FAIL")} ({t:O})" : "--";
+                var next = rule.NextScheduledAt is { } n ? n.ToString("O") : "--";
+                await output.WriteLineAsync(string.Join('\t', new[] { rule.RuleId, rule.Name, rule.Enabled.ToString(), rule.MatchedProcessCount.ToString(System.Globalization.CultureInfo.InvariantCulture), cpu, mem, handles, last, next }.Select(Safe)));
+            }
+            if (status.Rules.Count == 0) { await output.WriteLineAsync("(no auto-restart rules configured)"); }
+            return;
+        }
+        if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("ruleId", out _)
+            && data.TryGetProperty("affectedProcessCount", out _))
+        {
+            var run = data.Deserialize<Core.Models.AutoRestartRunResult>(AgentProtocol.JsonOptions)!;
+            await output.WriteLineAsync($"autorestart run | rule: {Safe(run.RuleId)} | ok: {run.Succeeded} | affected: {run.AffectedProcessCount} | elevated: {run.UsedElevation} | {Safe(run.Message)}");
+            return;
+        }
         if (data.ValueKind == JsonValueKind.Array)
         {
             var rows = data.EnumerateArray().ToArray();

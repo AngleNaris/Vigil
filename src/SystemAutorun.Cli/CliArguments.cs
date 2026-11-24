@@ -45,6 +45,8 @@ public sealed record CliArguments(CliRoute Route, string? Name, IReadOnlyDiction
         new("monitor history", "monitoring-history"),
         new("recovery state", "recovery-state"),
         new("recovery resume", "recovery-resume", true, Revision: true, Confirmation: true),
+        new("autorestart status", "auto-restart-status"),
+        new("autorestart run", "auto-restart-run", true, Confirmation: true),
         new("daemon status", "ping"), new("daemon start", null), new("daemon stop", "shutdown"),
         new("operation show", "operation", true), new("doctor", "doctor"),
         new("startup operation inspect", "startup-operation-inspect", true),

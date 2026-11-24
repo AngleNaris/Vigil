@@ -23,7 +23,7 @@ internal sealed record ProgressInfo(double Percent, string Message);
 
 internal static class InstallerEngine
 {
-    internal const string AppVersion = "1.0.0";
+    internal const string AppVersion = "1.1.0";
     internal const string AppDisplayName = "Vigil";
     internal const string PublisherName = "Casidia";
     private const string UninstallSubKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Vigil";

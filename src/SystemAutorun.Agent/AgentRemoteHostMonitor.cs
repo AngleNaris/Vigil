@@ -279,11 +279,19 @@ internal sealed class AgentRemoteHostMonitor : IDisposable, IAsyncDisposable
         {
             lock (worker.Sync)
             {
-                if (worker.Definition.Enabled
-                    && worker.LatestOnlineSnapshot is { Online: true } snapshot
+                if (!worker.Definition.Enabled) { continue; }
+                if (worker.LatestOnlineSnapshot is { Online: true } snapshot
                     && IsFresh(snapshot.CapturedAt, now))
                 {
                     list.Add(snapshot with { Name = worker.Definition.Name });
+                }
+                else if (worker.HasCompletedFirstAttempt
+                    && !string.IsNullOrWhiteSpace(worker.LastError))
+                {
+                    var offline = RemoteHostStatusSnapshot.Offline(worker.Definition, worker.LastError);
+                    list.Add(worker.LastAttemptCompletedAt is { } failedAt
+                        ? offline with { CapturedAt = failedAt }
+                        : offline);
                 }
             }
         }

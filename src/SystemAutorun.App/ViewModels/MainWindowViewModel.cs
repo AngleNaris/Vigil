@@ -17,6 +17,7 @@ public partial class MainWindowViewModel : ObservableObject
 {
     public const string OverviewPage = "overview";
     public const string WorkloadsPage = "workloads";
+    public const string AutomationPage = "automation";
     public const string ManagedProcessesPage = "managed-processes";
     public const string ExceptionLogsPage = "exception-logs";
 
@@ -37,6 +38,8 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly Dictionary<string, string> _activeResourceAlerts =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _knownOfflineRemoteHosts =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _lastAlertNotifiedAt =
         new(StringComparer.OrdinalIgnoreCase);
     private ResourceAlertSettings _alertSettings = new();
     private readonly FileLog _alertFileLog = new();
@@ -376,6 +379,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public bool IsWorkloadsPage => CurrentPage == WorkloadsPage;
 
+    public bool IsAutomationPage => CurrentPage == AutomationPage;
+
     public bool IsManagedProcessesPage => CurrentPage == ManagedProcessesPage;
 
     public bool IsExceptionLogsPage => CurrentPage == ExceptionLogsPage;
@@ -404,6 +409,8 @@ public partial class MainWindowViewModel : ObservableObject
     public event EventHandler<string?>? RemoteHostDialogRequested;
 
     public event EventHandler<string?>? AlertSettingsRequested;
+
+    public event EventHandler<string?>? AutoRestartSettingsRequested;
 
     public event EventHandler<string>? AlertRequested;
 
@@ -542,12 +549,24 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRunGlobalCommand))]
     private void OpenAlertSettings() => AlertSettingsRequested?.Invoke(this, null);
 
+    [RelayCommand(CanExecute = nameof(CanRunGlobalCommand))]
+    private void OpenAutoRestartSettings() => AutoRestartSettingsRequested?.Invoke(this, null);
+
     [RelayCommand(CanExecute = nameof(CanOperateSelectedTask))]
     private void OpenTaskAlertSettings()
     {
         if (SelectedTask is { } task)
         {
             AlertSettingsRequested?.Invoke(this, "task:" + task.Name);
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOperateSelectedTask))]
+    private void OpenTaskAutoRestartSettings()
+    {
+        if (SelectedTask is { } task)
+        {
+            AutoRestartSettingsRequested?.Invoke(this, task.Name);
         }
     }
 
@@ -928,6 +947,63 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    internal async Task<ConfigurationWorkspaceSnapshot> ApplyAutoRestartSettingsAsync(
+        AutoRestartSettings settings,
+        ConfigurationWorkspaceSnapshot original)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var normalized = settings.CloneNormalized();
+        AutoRestartSettingsValidator.Validate(normalized);
+        await FlushSettingsAsync();
+        try
+        {
+            _ = await _configuration.MutateAsync<ApplicationSettings>(
+                "settings-set",
+                payload: original.Preferences with { AutoRestartSettings = normalized },
+                expectedRevision: original.Revision);
+        }
+        catch
+        {
+            _settingsGeneration++;
+            try { _ = await ReloadConfigurationCoreAsync(); } catch (Exception) { }
+            throw;
+        }
+
+        try
+        {
+            var refreshed = await ReloadConfigurationCoreAsync();
+            StatusMessage = "已保存自动重启规则。";
+            return refreshed;
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"自动重启规则已保存，但状态重读失败；请刷新核对：{exception.Message}";
+            return original with { Preferences = original.Preferences with { AutoRestartSettings = normalized } };
+        }
+    }
+
+    internal async Task<AutoRestartStatusSnapshot?> TryReadAutoRestartStatusAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _client.SendAsync<AutoRestartStatusSnapshot>(
+                "auto-restart-status",
+                timeout: TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    internal Task<AutoRestartRunResult> RunAutoRestartRuleAsync(string ruleId, CancellationToken cancellationToken = default) =>
+        _client.SendAsync<AutoRestartRunResult>(
+            "auto-restart-run",
+            name: ruleId,
+            timeout: TimeSpan.FromSeconds(30),
+            cancellationToken: cancellationToken);
+
     [RelayCommand]
     private void EditConfig() => Process.Start(new ProcessStartInfo
     {
@@ -1009,6 +1085,7 @@ public partial class MainWindowViewModel : ObservableObject
         _ = value;
         OnPropertyChanged(nameof(IsOverviewPage));
         OnPropertyChanged(nameof(IsWorkloadsPage));
+        OnPropertyChanged(nameof(IsAutomationPage));
         OnPropertyChanged(nameof(IsManagedProcessesPage));
         OnPropertyChanged(nameof(IsExceptionLogsPage));
         OnPropertyChanged(nameof(IsMonitoringPage));
@@ -1136,7 +1213,7 @@ public partial class MainWindowViewModel : ObservableObject
     private bool CanNavigate(string? page) =>
         page == OverviewPage
         || IsLocalHostSelected
-        && page is WorkloadsPage or ManagedProcessesPage or ExceptionLogsPage;
+        && page is WorkloadsPage or AutomationPage or ManagedProcessesPage or ExceptionLogsPage;
 
     private async Task RunTaskCommandAsync(string command, string action)
     {
@@ -1753,24 +1830,53 @@ public partial class MainWindowViewModel : ObservableObject
                 .ToArray();
             if (newlyFailed.Length > 0)
             {
+                var notifiable = new List<TaskRowViewModel>(newlyFailed.Length);
                 foreach (var task in newlyFailed)
                 {
+                    if (!TryConsumeAlertNotificationQuota($"fail:task:{task.Name}"))
+                    {
+                        continue;
+                    }
+
+                    notifiable.Add(task);
                     WriteAlertLog(
                         task.Name,
                         "ERROR",
                         $"[状态告警] 工作负载 {task.Name} 状态异常：{task.ReasonLabel} ({task.Detail})");
                 }
 
-                AlertRequested?.Invoke(
-                    this,
-                    newlyFailed.Length == 1
-                        ? $"工作负载 {newlyFailed[0].Name} 状态异常。"
-                        : $"{newlyFailed.Length} 个工作负载出现异常。");
+                if (notifiable.Count > 0)
+                {
+                    AlertRequested?.Invoke(
+                        this,
+                        notifiable.Count == 1
+                            ? $"工作负载 {notifiable[0].Name} 状态异常。"
+                            : $"{notifiable.Count} 个工作负载出现异常。");
+                }
             }
         }
 
         _knownFailures.Clear();
         _knownFailures.UnionWith(current);
+    }
+
+    internal bool TryConsumeAlertNotificationQuota(string cooldownKey)
+    {
+        var minutes = Math.Clamp(_alertSettings.NotificationCooldownMinutes, 0, 1440);
+        if (minutes <= 0)
+        {
+            return true;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (_lastAlertNotifiedAt.TryGetValue(cooldownKey, out var last)
+            && now - last < TimeSpan.FromMinutes(minutes))
+        {
+            return false;
+        }
+
+        _lastAlertNotifiedAt[cooldownKey] = now;
+        return true;
     }
 
     private void WriteAlertLog(string category, string levelPrefix, string message)
@@ -1843,7 +1949,9 @@ public partial class MainWindowViewModel : ObservableObject
         EditRemoteHostCommand.NotifyCanExecuteChanged();
         RemoveRemoteHostCommand.NotifyCanExecuteChanged();
         OpenAlertSettingsCommand.NotifyCanExecuteChanged();
+        OpenAutoRestartSettingsCommand.NotifyCanExecuteChanged();
         OpenTaskAlertSettingsCommand.NotifyCanExecuteChanged();
+        OpenTaskAutoRestartSettingsCommand.NotifyCanExecuteChanged();
         OpenHostAlertSettingsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(IsSelectedTaskRunning));
         OnPropertyChanged(nameof(DashboardPrimaryPowerCommand));

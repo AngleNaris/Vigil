@@ -21,6 +21,7 @@ internal sealed class AgentCommandDispatcher
     private readonly SystemAutorun.Core.Services.IStartupOperationInspectionReader _startupOperations;
     private readonly AgentStartupRegistrationService _startupRegistration;
     private readonly SystemAutorun.Windows.Startup.SelfStartupRegistrationService _selfRegistration;
+    private readonly AgentAutoRestartWorker? _autoRestart;
     private readonly string _selfRootId;
     private int _selfPreparationActive;
     private long _selfPreparationFinishedAt = -1;
@@ -41,9 +42,11 @@ internal sealed class AgentCommandDispatcher
         SystemAutorun.Core.Services.IStartupOperationInspectionReader? startupOperationReader = null,
         SystemAutorun.Windows.Startup.SelfStartupRegistrationService? selfRegistration = null,
         AgentRemoteHostMonitor? remoteMonitor = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        AgentAutoRestartWorker? autoRestart = null)
     {
         _errorObserver = errorObserver;
+        _autoRestart = autoRestart;
         _orchestrator = orchestrator;
         _hostStatusReader = hostStatusReader;
         _workspace = workspace;
@@ -189,6 +192,8 @@ internal sealed class AgentCommandDispatcher
                 "exception-logs" => await _orchestrator.ExceptionLogsAsync(cancellationToken: cancellationToken)
                     .ConfigureAwait(false),
                 "doctor" => await _orchestrator.DoctorAsync(cancellationToken).ConfigureAwait(false),
+                "auto-restart-status" => await RequiredAutoRestart().GetStatusAsync(cancellationToken).ConfigureAwait(false),
+                "auto-restart-run" => await RequiredAutoRestart().RunRuleNowAsync(RequiredName(request), cancellationToken).ConfigureAwait(false),
                 "reload" => await _orchestrator.ListAsync(cancellationToken).ConfigureAwait(false),
                 "shutdown" => new { shutdownRequested = true },
                 _ => throw new AgentCommandException("unknown_command", $"Unknown command: {request.Command}"),
@@ -274,6 +279,9 @@ internal sealed class AgentCommandDispatcher
 
     private AgentMonitor RequiredMonitor() => _monitor
         ?? throw new AgentCommandException("monitoring_unavailable", "Independent monitoring is unavailable on this Agent.");
+
+    private AgentAutoRestartWorker RequiredAutoRestart() => _autoRestart
+        ?? throw new AgentCommandException("auto_restart_unavailable", "Auto-restart worker is unavailable on this Agent.");
 
     private static string RequiredOperationInspectionId(AgentRequest request)
     {

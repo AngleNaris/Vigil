@@ -53,7 +53,7 @@ public static class AgentProtocol
     // Wire operation-ID classification, NOT a promise of generic dispatcher wrapping.
     // self-set uses the context-aware self pipeline on the exact shared Journal once.
     public static bool IsMutation(string command) => IsConfigurationMutation(command)
-        || command.ToLowerInvariant() is "start" or "stop" or "restart" or "start-missing" or "start-on-app-launch" or "recovery-resume" or "shutdown" or "startup-self-set";
+        || command.ToLowerInvariant() is "start" or "stop" or "restart" or "start-missing" or "start-on-app-launch" or "recovery-resume" or "shutdown" or "startup-self-set" or "auto-restart-run";
 
     public static string NewOperationId() => Guid.CreateVersion7().ToString("N");
 

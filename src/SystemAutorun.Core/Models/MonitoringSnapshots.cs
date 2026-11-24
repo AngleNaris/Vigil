@@ -35,7 +35,7 @@ public sealed record ManagedProcessSnapshot(
 {
     public int ProcessCount => Processes.Count;
 
-    public bool CpuUsageAvailable => Processes.Count > 0 && Processes.All(process => process.CpuUsageAvailable);
+    public bool CpuUsageAvailable => Processes.Count > 0 && Processes.Any(process => process.CpuUsageAvailable);
 
     public double CpuUsagePercent => Processes.Sum(process => process.CpuUsagePercent);
 

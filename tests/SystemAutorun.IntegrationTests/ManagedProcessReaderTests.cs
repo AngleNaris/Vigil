@@ -147,6 +147,44 @@ public sealed class ManagedProcessReaderTests
     }
 
     [Fact]
+    public async Task MultiInstanceTaskKeepsRatesAvailableWhenNewInstanceAppearsOnFirstSample()
+    {
+        var task = CreateTask("multi-app", expectedRunning: true);
+        var baseFileTime = DateTime.UtcNow.AddMinutes(-5).ToFileTimeUtc();
+        var newFileTime = DateTime.UtcNow.AddSeconds(-1).ToFileTimeUtc();
+        var net = new FakeNetworkSource();
+        var metrics = new Dictionary<int, NativeMethods.NativeProcessMetric>
+        {
+            [1000] = new(1000, 100, "multi-app", baseFileTime, TimeSpan.FromSeconds(5).Ticks, 40L << 20, 30L << 20, 4, 10_000, 5_000),
+        };
+        net.Set(1000, 1_000, 500);
+        var reader = new ManagedProcessReader(net, () => metrics);
+
+        var first = Assert.Single(await reader.ReadAsync([task], new FixedExecutor(1000),
+            new FixedHealthProbe(HealthResult.Ok("process-running", "Running."))));
+        Assert.False(first.CpuUsageAvailable);
+
+        await Task.Delay(120);
+        metrics[1000] = metrics[1000] with
+        {
+            TotalProcessorTimeTicks = TimeSpan.FromSeconds(5.05).Ticks,
+            DiskReadBytes = 15_000,
+        };
+        // A brand-new sibling instance appears on Tick 2 without a previous sample baseline.
+        metrics[1001] = new(1001, 100, "multi-app", newFileTime, TimeSpan.FromSeconds(1).Ticks, 20L << 20, 10L << 20, 2, 1_000, 500);
+        net.Set(1000, 4_000, 2_000);
+        net.Set(1001, 500, 250);
+
+        var second = Assert.Single(await reader.ReadAsync([task], new FixedExecutor(1000, 1001),
+            new FixedHealthProbe(HealthResult.Ok("process-running", "Running."))));
+        Assert.Equal(2, second.ProcessCount);
+        Assert.True(second.CpuUsageAvailable);
+        Assert.True(second.CpuUsagePercent > 0);
+        Assert.True(second.TotalDiskReadBytesPerSecond > 0);
+        Assert.True(second.TotalNetworkReceiveBytesPerSecond > 0);
+    }
+
+    [Fact]
     public async Task LiveNativeMetricsAndProcessNetworkTrackerOperateAndCleanUpWithoutLeakingSession()
     {
         var metrics = NativeMethods.TryReadProcessMetrics();

@@ -22,6 +22,12 @@ internal readonly record struct TrendScale(double Minimum, double Maximum)
         return new(0, Nice(Math.Max(1, high <= double.MaxValue / 1.15 ? high * 1.15 : high)));
     }
 
+    internal static TrendScale FitCount(IEnumerable<double> source)
+    {
+        var high = source.Where(value => double.IsFinite(value) && value >= 0).DefaultIfEmpty(0).Max();
+        return new(0, Nice(Math.Max(10, high <= double.MaxValue / 1.15 ? high * 1.15 : high)));
+    }
+
     internal static double Nice(double value)
     {
         var unit = Math.Pow(10, Math.Floor(Math.Log10(value)));
@@ -36,9 +42,9 @@ internal sealed class StableTrendScale
     private TrendScale? _current;
     private DateTimeOffset _heldAt;
 
-    internal TrendScale Update(IEnumerable<double> values, bool bytes, DateTimeOffset at, bool rate = false)
+    internal TrendScale Update(IEnumerable<double> values, bool bytes, DateTimeOffset at, bool rate = false, bool count = false)
     {
-        var desired = rate ? TrendScale.FitRate(values) : TrendScale.Fit(values, bytes);
+        var desired = count ? TrendScale.FitCount(values) : rate ? TrendScale.FitRate(values) : TrendScale.Fit(values, bytes);
         if (_current is not { } current || at < _heldAt)
         { _heldAt = at; return (_current = desired).Value; }
         if (desired.Minimum < current.Minimum || desired.Maximum > current.Maximum)

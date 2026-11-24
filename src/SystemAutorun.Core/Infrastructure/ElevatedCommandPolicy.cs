@@ -6,5 +6,7 @@ public static class ElevatedCommandPolicy
 {
     public const int RejectedExitCode = 64;
 
-    public static bool IsSupported(string? command) => command is "install-boot" or "uninstall-boot" or "start-boot";
+    public static bool IsSupported(string? command) => command is
+        "install-boot" or "uninstall-boot" or "start-boot"
+        or "install-maintenance" or "uninstall-maintenance" or "run-maintenance";
 }

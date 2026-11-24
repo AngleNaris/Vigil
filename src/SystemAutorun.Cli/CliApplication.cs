@@ -611,6 +611,7 @@ public sealed partial class CliApplication
           startup self prepare enable|disable [--json]
           startup self set --file JSON --yes [--operation-id UUIDv7]
           recovery state | resume NAME
+          autorestart status | run RULE_ID --yes
           daemon status/start/stop | operation show ID | doctor
         Global: --json --timeout SECONDS --non-interactive --help --version
         Revision: --expected-revision SHA256 for configuration changes / recovery resume / startup inspect.

@@ -8,20 +8,38 @@ public sealed record ProcessPresence(IReadOnlyList<int> ProcessIds, bool Identit
 
 public sealed class ProcessIdentity
 {
-    public IReadOnlyList<int> FindMatchingProcessIds(AutorunTask task) => ReadPresence(task).ProcessIds;
-
-    public ProcessPresence ReadPresence(AutorunTask task)
+    public IReadOnlyList<int> FindMatchingProcessIds(AutorunTask task)
     {
-        var pattern = task.Health.Pattern;
-        if (string.IsNullOrWhiteSpace(pattern))
+        var (presence, unverifiedMatches) = ReadPresenceInternal(task);
+        if (presence.ProcessIds.Count > 0)
         {
-            return new([], IdentityUnavailable: true);
+            return presence.ProcessIds;
         }
 
-        var processName = Path.GetFileNameWithoutExtension(pattern.Trim());
+        // For resource monitoring only: if a matching process name exists but OpenProcess
+        // failed (e.g. elevated/SYSTEM process while Agent runs unelevated), still allow
+        // NtQuerySystemInformation-based metric collection without weakening health checks.
+        return unverifiedMatches.Count > 0 ? unverifiedMatches : presence.ProcessIds;
+    }
+
+    public ProcessPresence ReadPresence(AutorunTask task) => ReadPresenceInternal(task).Presence;
+
+    private (ProcessPresence Presence, IReadOnlyList<int> UnverifiedMatches) ReadPresenceInternal(AutorunTask task)
+    {
+        var pattern = !string.IsNullOrWhiteSpace(task.Health.Pattern)
+            ? task.Health.Pattern
+            : !string.IsNullOrWhiteSpace(task.Executable)
+                ? Path.GetFileName(task.Executable.Trim())
+                : null;
+        if (string.IsNullOrWhiteSpace(pattern))
+        {
+            return (new([], IdentityUnavailable: true), []);
+        }
+
+        var processName = NormalizeProcessName(pattern);
         if (string.IsNullOrWhiteSpace(processName))
         {
-            return new([], IdentityUnavailable: true);
+            return (new([], IdentityUnavailable: true), []);
         }
 
         string? expectedPath = null;
@@ -40,8 +58,9 @@ public sealed class ProcessIdentity
         }
 
         if (!string.IsNullOrWhiteSpace(task.Executable) && expectedPath is null)
-        { return new([], IdentityUnavailable: true); }
+        { return (new([], IdentityUnavailable: true), []); }
         var matches = new List<int>();
+        var unverifiedMatches = new List<int>();
         var unavailable = false;
         foreach (var process in Process.GetProcessesByName(processName))
         {
@@ -54,7 +73,11 @@ public sealed class ProcessIdentity
                 }
 
                 var actualPath = NativeMethods.TryGetProcessImagePath(process.Id);
-                if (actualPath is null) { unavailable = true; }
+                if (actualPath is null)
+                {
+                    unavailable = true;
+                    unverifiedMatches.Add(process.Id);
+                }
                 else if (IsExpectedImage(actualPath, expectedPath))
                 {
                     matches.Add(process.Id);
@@ -62,7 +85,17 @@ public sealed class ProcessIdentity
             }
         }
 
-        return new(matches, unavailable);
+        return (new(matches, unavailable), unverifiedMatches);
+    }
+
+    internal static string NormalizeProcessName(string pattern)
+    {
+        var fileName = Path.GetFileName(pattern.Trim());
+        if (fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            fileName = fileName[..^4];
+        }
+        return fileName;
     }
 
     internal static bool IsExpectedImage(string actualPath, string expectedPath)

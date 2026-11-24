@@ -84,8 +84,14 @@ try
         operations.InstanceId, history, historyError, remoteMonitor: remoteMonitor);
     var recovery = new AgentRecoveryWorker(tasks, monitor.RecoveryEvidenceCurrent);
     monitor.SamplePublished += recovery.Enqueue;
+    using var autoRestart = new AgentAutoRestartWorker(
+        workspace,
+        tasks,
+        new ProcessMaintenanceExecutor(),
+        fileLog,
+        monitor.GetSnapshot);
     var dispatcher = new AgentCommandDispatcher(orchestrator, host, workspace, monitor, operations, tasks,
-        remoteReader: sshRemoteHostReader, remoteMonitor: remoteMonitor);
+        remoteReader: sshRemoteHostReader, remoteMonitor: remoteMonitor, autoRestart: autoRestart);
     var server = new AgentServer(dispatcher, shutdown, paths.RootDirectory);
     await fileLog.WriteAsync(
         configuration.Settings.LogDirectory,
@@ -94,11 +100,12 @@ try
     var monitoringTask = Task.Run(() => monitor.RunAsync(shutdown.Token));
     var remoteMonitoringTask = Task.Run(() => remoteMonitor.RunAsync(shutdown.Token));
     var recoveryTask = Task.Run(() => recovery.RunAsync(shutdown.Token));
+    var autoRestartTask = Task.Run(() => autoRestart.RunAsync(shutdown.Token));
     try { await server.RunAsync(shutdown.Token); }
     finally
     {
         shutdown.Cancel();
-        try { await Task.WhenAll(monitoringTask, remoteMonitoringTask, recoveryTask); }
+        try { await Task.WhenAll(monitoringTask, remoteMonitoringTask, recoveryTask, autoRestartTask); }
         finally { await tasks.DrainAsync(); } // Even a worker fault must not skip accepted control intents.
     }
     await fileLog.WriteAsync(

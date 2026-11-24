@@ -53,7 +53,8 @@ public sealed class ManagedProcessReader
         var captures = new ConcurrentDictionary<int, Lazy<ManagedProcessInstanceSnapshot?>>();
         var activeKeys = new ConcurrentDictionary<ProcessKey, byte>();
 
-        var snapshots = probes.Select(probe => BuildSnapshot(probe, captures, nativeSnapshot, childrenByParent, activeKeys))
+        var batchCapturedAt = DateTimeOffset.Now;
+        var snapshots = probes.Select(probe => BuildSnapshot(probe, batchCapturedAt, captures, nativeSnapshot, childrenByParent, activeKeys))
             .OrderBy(snapshot => snapshot.State == "FAIL" ? 0 : snapshot.State == "OK" ? 1 : 2)
             .ThenBy(snapshot => snapshot.TaskName, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
@@ -84,6 +85,7 @@ public sealed class ManagedProcessReader
 
     private ManagedProcessSnapshot BuildSnapshot(
         TaskProbeResult probe,
+        DateTimeOffset batchCapturedAt,
         ConcurrentDictionary<int, Lazy<ManagedProcessInstanceSnapshot?>> captures,
         Lazy<IReadOnlyDictionary<int, NativeMethods.NativeProcessMetric>?> nativeSnapshot,
         Lazy<Dictionary<int, List<int>>> childrenByParent,
@@ -92,7 +94,7 @@ public sealed class ManagedProcessReader
         var processes = probe.ProcessIds
             .Select(processId => captures.GetOrAdd(
                 processId,
-                id => new(() => TryReadProcess(id, probe.CapturedAt, nativeSnapshot, childrenByParent, activeKeys),
+                id => new(() => TryReadProcess(id, batchCapturedAt, nativeSnapshot, childrenByParent, activeKeys),
                     LazyThreadSafetyMode.ExecutionAndPublication)).Value)
             .Where(snapshot => snapshot is not null)
             .Cast<ManagedProcessInstanceSnapshot>()
@@ -109,7 +111,7 @@ public sealed class ManagedProcessReader
             state,
             probe.Health.Reason,
             probe.Health.Detail,
-            probe.CapturedAt,
+            batchCapturedAt,
             processes,
             probe.Health.Observed,
             MonitoringTaskIdentity.For(probe.Task));

@@ -274,20 +274,38 @@ public partial class MainWindowViewModel
                     if (tab.IsLocal || tab.Definition is not { Enabled: true } definition) { continue; }
                     var matched = remoteSnapshots.FirstOrDefault(item =>
                         string.Equals(item.Id, definition.Id, StringComparison.OrdinalIgnoreCase)
-                        && item.Online && item.Platform == definition.Platform
+                        && item.Platform == definition.Platform
                         && string.Equals(item.Host, definition.Host, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(item.Name, definition.Name, StringComparison.Ordinal)
-                        && RemoteObservationFresh(item.CapturedAt));
+                        && (item.Online
+                            ? RemoteObservationFresh(item.CapturedAt)
+                            : !string.IsNullOrWhiteSpace(item.Error)));
                     if (matched is null) { continue; }
-                    var newer = tab.RemoteSnapshot is not { Online: true } existing || matched.CapturedAt >= existing.CapturedAt;
-                    if (!ReferenceEquals(SelectedHostTab, tab))
+                    if (matched.Online)
                     {
-                        if (newer) { tab.ApplyRemoteStatus(matched); }
+                        var newer = tab.RemoteSnapshot is not { Online: true } existing || matched.CapturedAt >= existing.CapturedAt;
+                        if (!ReferenceEquals(SelectedHostTab, tab))
+                        {
+                            if (newer) { tab.ApplyRemoteStatus(matched); }
+                        }
+                        else if (_remoteCancellation is null && (!HostStatusAvailable || newer))
+                        {
+                            tab.ApplyRemoteStatus(matched);
+                            ApplyRemoteHostStatus(matched);
+                        }
                     }
-                    else if (_remoteCancellation is null && (!HostStatusAvailable || newer))
+                    else
                     {
-                        tab.ApplyRemoteStatus(matched);
-                        ApplyRemoteHostStatus(matched);
+                        var newer = tab.RemoteSnapshot is not { } existing || existing.Online || matched.CapturedAt >= existing.CapturedAt;
+                        if (!ReferenceEquals(SelectedHostTab, tab))
+                        {
+                            if (newer) { tab.ApplyRemoteStatus(matched); }
+                        }
+                        else if (_remoteCancellation is null && newer)
+                        {
+                            tab.ApplyRemoteStatus(matched);
+                            ApplyRemoteHostStatus(matched);
+                        }
                     }
                 }
                 _remoteResumeGraceUntilUtc = null;
@@ -364,7 +382,8 @@ public partial class MainWindowViewModel
                 _highCpuSince.Remove(key);
                 tab.UpdateResourceAlert(false, string.Empty);
                 _activeResourceAlerts.Remove(key);
-                if (_knownOfflineRemoteHosts.Add(tab.Id) && _notificationsEnabled)
+                if (_knownOfflineRemoteHosts.Add(tab.Id) && _notificationsEnabled
+                    && TryConsumeAlertNotificationQuota($"offline:host:{tab.Id}"))
                 {
                     var reason = string.IsNullOrWhiteSpace(offlineRemote.Error) ? "连接不可用" : offlineRemote.Error;
                     WriteAlertLog("alerts", "ERROR", $"[主机离线告警] 远程主机 {tab.Name} ({definition.Host}) 不可用：{reason}");
@@ -442,7 +461,8 @@ public partial class MainWindowViewModel
         var isNew = !_activeResourceAlerts.TryGetValue(alertKey, out var previous)
             || !string.Equals(previous, kindSignature, StringComparison.Ordinal);
         _activeResourceAlerts[alertKey] = kindSignature;
-        if (!isNew || !_notificationsEnabled)
+        if (!isNew || !_notificationsEnabled
+            || !TryConsumeAlertNotificationQuota($"res:{alertKey}:{kindSignature}"))
         {
             return;
         }
